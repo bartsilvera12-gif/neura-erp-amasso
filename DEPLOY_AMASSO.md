@@ -11,7 +11,7 @@ git con el ERP de origen.
 | URL | `http://amasso.neura.com.py` (HTTP: el TLS lo termina Cloudflare) |
 | Empresa id | `26f2bd0a-3394-4256-a908-bf8784368fd5` |
 | Login admin | `admin@amasso.com` (rol `admin`) |
-| App Coolify | `neura-erp-amasso` |
+| App Coolify | `neura-erp-amasso` · uuid `ihi0rqlifmazhdsa0ojspfls` |
 
 ---
 
@@ -160,8 +160,8 @@ Se clonaron de la app `neura-erp-distribuidorajm` con
 `scripts/coolify-clonar-env.mjs`, que ya viene apuntado a este ERP.
 
 ```bash
-node scripts/coolify-clonar-env.mjs plan    --url http://181.30.26.61:8000 --token "<token>" --origen 3fctblvtpujy2mrqtxeooxrp --destino <uuid-amasso>
-node scripts/coolify-clonar-env.mjs aplicar --url http://181.30.26.61:8000 --token "<token>" --origen 3fctblvtpujy2mrqtxeooxrp --destino <uuid-amasso>
+node scripts/coolify-clonar-env.mjs plan    --url http://181.30.26.61:8000 --token "<token>" --origen 3fctblvtpujy2mrqtxeooxrp --destino ihi0rqlifmazhdsa0ojspfls
+node scripts/coolify-clonar-env.mjs aplicar --url http://181.30.26.61:8000 --token "<token>" --origen 3fctblvtpujy2mrqtxeooxrp --destino ihi0rqlifmazhdsa0ojspfls
 ```
 
 ### Cambian sí o sí
@@ -227,8 +227,17 @@ Configuración → Facturación electrónica, no por variable de entorno.
 
 ## 4 · Dominio
 
-`amasso.neura.com.py` por HTTP en Coolify (Cloudflare termina el TLS). Ya
-quedaron apuntando ahí en el repo:
+`amasso.neura.com.py` por HTTP en Coolify (Cloudflare termina el TLS). El FQDN
+ya está puesto en la app y Coolify generó las labels de Traefik y Caddy para ese
+host.
+
+**Falta el registro DNS**: `amasso.neura.com.py` todavía no resuelve. La zona
+`neura.com.py` está en Cloudflare (`sergi`/`rihana.ns.cloudflare.com`) y los
+hermanos (`distribuidorajm`, `ferrecolor`) resuelven a IPs de Cloudflare
+(`104.21.14.32` / `172.67.157.173`), o sea registro **proxied**. Hay que crear
+`amasso` igual que ellos.
+
+Ya quedaron apuntando ahí en el repo:
 
 - `NEXT_PUBLIC_APP_URL` (fallback en `src/lib/cobranzas/cobro-pendiente-notificar.ts`)
 - `capacitor.config.ts` (`appId: py.com.neura.amasso`, `server.url`,
@@ -240,6 +249,16 @@ quedaron apuntando ahí en el repo:
 ## 5 · Pendientes conocidos
 
 - **Exposición del schema en PostgREST**: la hacés vos, como acordamos (ver §1).
+- **Registro DNS** de `amasso.neura.com.py` en Cloudflare (ver §4).
+- **"Use a build server"** quedó en `false`. La app de Distribuidora JM lo tiene
+  en `true` (compila en `build-server-arg` y empuja la imagen a
+  `registry.neura.internal:5000`). La API v1 de Coolify no expone ese flag, así
+  que hay que activarlo a mano en Application → Advanced. El nombre de imagen de
+  registry ya quedó puesto (`registry.neura.internal:5000/neura-erp-amasso`), así
+  que al activarlo no falta nada más. Con el flag en `false` la app igual
+  compila, pero en el server de la app y más lento.
+- **Deploy**: la app se creó con `instant_deploy: false`. No se disparó ningún
+  deploy todavía.
 - **`SET_APIKEY`**: la copiada es de Distribuidora JM. Cambiarla por la de
   Amasso antes de consultar RUC.
 - **Contacto del emisor en el XML de SIFEN**: `src/lib/sifen/emisor-contacto.ts`
