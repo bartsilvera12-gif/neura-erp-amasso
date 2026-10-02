@@ -14,6 +14,7 @@ const SIDEBAR_SLUG_HREF_ORDER: { slug: string; href: string }[] = [
   { slug: "monitoreo", href: "/dashboard/monitoreo" },
   { slug: "ventas", href: "/ventas" },
   { slug: "inventario", href: "/inventario" },
+  { slug: "recetas", href: "/dashboard/recetas" },
   { slug: "clientes", href: "/clientes" },
   { slug: "compras", href: "/compras" },
   { slug: "gastos", href: "/gastos" },
@@ -109,6 +110,7 @@ export function pathRequiresModuleSlug(pathname: string): string | null {
     // Tableros y Chat interno caían al fallback "conversaciones" del final de este
     // bloque: tener el módulo concedido no alcanzaba para entrar, porque el gate
     // pedía un módulo distinto del que muestra el ítem. Explícitos acá.
+    if (p.startsWith("/dashboard/recetas")) return "recetas";
     if (p.startsWith("/dashboard/tableros")) return "tableros";
     if (p.startsWith("/dashboard/chat-interno")) return "chat_interno";
     if (p.startsWith("/dashboard/soporte")) return "soporte";

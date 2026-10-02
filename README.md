@@ -35,8 +35,12 @@ puesta en marcha.
 
 Agenda · Clientes · Cobranzas · Comisiones · Compras · Configuración ·
 Dashboard · Gastos · Gerencia · Gestión Clientes · Guardias · Inventario
-(incluye Movimientos) · Notas de crédito · Pagos · Reportes · RRHH · Tableros ·
-Ventas
+(incluye Movimientos) · Notas de crédito · Pagos · Recetas · Reportes · RRHH ·
+Tableros · Ventas
+
+**Recetas** es el recetario con costeo y fabricación: se portó del ERP de La
+Mexicana y descuenta materia prima al producir. Detalle en
+[`DEPLOY_AMASSO.md`](DEPLOY_AMASSO.md) §2.1.
 
 El menú sale de `empresa_modulos`, no del código: se amplía o se recorta desde
 la base, sin tocar el repo. Qué quedó fuera y por qué está en

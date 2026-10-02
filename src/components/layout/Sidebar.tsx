@@ -37,6 +37,7 @@ import {
   ScrollText,
   ListChecks,
   Factory,
+  ChefHat,
   Percent,
   Tags,
   CalendarDays,
@@ -133,6 +134,15 @@ const MENU_STRUCTURE: MenuItem[] = [
     { label: "Categorías", href: "/inventario/categorias" },
     { label: "Depósitos / Ubicaciones", href: "/inventario/ubicaciones" },
   ]},
+  {
+    // Recetario y fabricación. Vive al lado de Inventario porque es de ahí que
+    // consume la materia prima y ahí mismo entrega el producto terminado.
+    key: "recetas",
+    slug: "recetas",
+    label: "Recetas",
+    href: "/dashboard/recetas",
+    icon: ChefHat,
+  },
   { key: "clientes", slug: "clientes", label: "Clientes", href: "/clientes", icon: Users },
   {
     key: "compras",

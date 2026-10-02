@@ -6,7 +6,7 @@
 --
 --   · empresa   Amasso   id = 26f2bd0a-3394-4256-a908-bf8784368fd5
 --   · login     admin@amasso.com   rol `admin`
---   · empresa_modulos con EXACTAMENTE los 18 módulos pedidos
+--   · empresa_modulos con EXACTAMENTE los 19 módulos pedidos
 --   · usuario_modulos para `tableros`, que es un módulo RESTRINGIDO
 --
 -- Sobre los módulos: el sidebar se arma con empresa_modulos ∩ usuario_modulos.
@@ -27,11 +27,14 @@ DECLARE
   v_email      text := 'admin@amasso.com';
   v_password   text := 'CambiarEsto123!';   -- <<<<<< CAMBIAR ANTES DE EJECUTAR
   ---------------------------------------------------------------------------
-  -- Los 18 módulos pedidos, con los slugs que el CÓDIGO realmente evalúa
+  -- Los 19 módulos pedidos, con los slugs que el CÓDIGO realmente evalúa
   -- (Sidebar.tsx + route-slug-map.ts). Tres equivalencias:
   --   · "RRHH"            → slug `usuarios` (así se llama la entrada del menú).
   --   · "Ventas"          → slug `ventas`, que en el menú figura como "Caja".
   --   · "Notas de crédito"→ slug `notas_credito`, con guion BAJO (no guion medio).
+  --   · "Recetas"        → slug `recetas`, la fila YA está en el catálogo heredado.
+  --                        En el ERP de origen no se usaba porque ese repo no
+  --                        tenía el código; acá sí (portado del de La Mexicana).
   --
   -- NO se incluye `contabilidad`: no tiene ninguna vista propia en el código
   -- (no aparece en el sidebar ni en route-slug-map), así que habilitarlo no
@@ -40,8 +43,8 @@ DECLARE
   v_slugs text[] := ARRAY[
     'agenda', 'clientes', 'cobranzas', 'comisiones', 'compras', 'configuracion',
     'dashboard', 'gastos', 'gerencia', 'gestion-clientes', 'guardias',
-    'inventario', 'notas_credito', 'pagos', 'reportes', 'tableros', 'usuarios',
-    'ventas'
+    'inventario', 'notas_credito', 'pagos', 'recetas', 'reportes', 'tableros',
+    'usuarios', 'ventas'
   ];
 
   -- El catálogo heredado puede no tener fila para alguno de los 18 (el schema
@@ -51,8 +54,9 @@ DECLARE
   --
   -- OJO con `cobros`: el catálogo heredado tiene esa fila y parece "Cobranzas",
   -- pero ese slug no aparece en ninguna parte del código — el que se evalúa es
-  -- `cobranzas`. Lo mismo con presupuestos/recepcion/recibos/remision/recetas:
-  -- son filas muertas del catálogo y no se otorgan.
+  -- `cobranzas`. Lo mismo con presupuestos/recepcion/recibos/remision: son filas
+  -- muertas del catálogo y no se otorgan. `recetas` NO es una de ellas: la fila
+  -- existía sin código detrás, y el código se portó del ERP de La Mexicana.
   v_catalogo text[][] := ARRAY[
     ARRAY['agenda',           'Agenda'],
     ARRAY['clientes',         'Clientes'],
@@ -68,6 +72,7 @@ DECLARE
     ARRAY['inventario',       'Inventario'],
     ARRAY['notas_credito',    'Notas de crédito'],
     ARRAY['pagos',            'Pagos'],
+    ARRAY['recetas',          'Recetas'],
     ARRAY['reportes',         'Reportes'],
     ARRAY['tableros',         'Tableros'],
     ARRAY['usuarios',         'RRHH'],
@@ -317,7 +322,7 @@ BEGIN
 END;
 $admin$;
 
--- Resultado 1: módulos activos de la empresa (esperado: 18 en activo = true)
+-- Resultado 1: módulos activos de la empresa (esperado: 19 en activo = true)
 SELECT m.slug, m.nombre, em.activo
 FROM amasso.empresa_modulos em
 JOIN amasso.modulos m ON m.id = em.modulo_id

@@ -26,8 +26,9 @@ cada uno.
 | 00 | `00_diagnostico_schema_origen.sql` | Opcional, solo lectura. Confirma que `distribuidorajmerp` es el origen y que `amasso` está libre. |
 | 01 | `01_clonar_schema.sql` | Crea `amasso` como copia estructural de `distribuidorajmerp`, **sin datos**. |
 | 02 | `02_catalogo_modulos.sql` | Copia el catálogo `modulos` (lista de módulos del producto). |
-| 03 | `03_empresa_admin_modulos.sql` | Empresa + usuario admin + los 18 módulos habilitados. |
+| 03 | `03_empresa_admin_modulos.sql` | Empresa + usuario admin + los 19 módulos habilitados. |
 | 04 | `04_verificacion.sql` | Solo lectura. Compara origen vs destino y busca fugas. |
+| 05 | `05_recetas_produccion.sql` | Habilita `produccion` en el CHECK de `movimientos_inventario.origen`. Sin esto la primera fabricación falla. |
 
 ### Antes de ejecutar
 
@@ -92,11 +93,14 @@ Hasta que `amasso` esté expuesto, el ERP no puede leer nada: PostgREST responde
 ## 2 · Módulos habilitados
 
 El menú se arma con `empresa_modulos ∩ usuario_modulos`. El script 03 deja
-activos exactamente estos 18, y **desactiva cualquier otro**:
+activos exactamente estos 19, y **desactiva cualquier otro**:
 
 `agenda`, `clientes`, `cobranzas`, `comisiones`, `compras`, `configuracion`,
 `dashboard`, `gastos`, `gerencia`, `gestion-clientes`, `guardias`, `inventario`,
-`notas_credito`, `pagos`, `reportes`, `tableros`, `usuarios`, `ventas`.
+`notas_credito`, `pagos`, `recetas`, `reportes`, `tableros`, `usuarios`,
+`ventas`.
+
+Los 18 que pediste más **Recetas**, que es nuevo (§2.1).
 
 Equivalencias entre lo que pediste y el slug que el código evalúa:
 
@@ -110,6 +114,7 @@ Equivalencias entre lo que pediste y el slug que el código evalúa:
 | Gerencia | `gerencia` | `/dashboard/gerencia` |
 | Guardias | `guardias` | `/dashboard/guardias` |
 | Tableros | `tableros` | `/dashboard/tableros` |
+| Recetas | `recetas` | `/dashboard/recetas` |
 
 **Movimientos** no es un módulo propio: es la vista hija de Inventario
 (`/inventario/movimientos`), y entra con `inventario`.
@@ -134,12 +139,67 @@ Equivalencias entre lo que pediste y el slug que el código evalúa:
    el módulo concedido no servía para entrar. Arreglado en
    `src/lib/modulos/route-slug-map.ts` (lo mismo para `/dashboard/chat-interno`).
 
+## 2.1 · Recetas y producción (portado de La Mexicana)
+
+El brief de Amasso pide un módulo de recetas que descuente materia prima por
+producción. No existía en este ERP, pero sí en el de **La Mexicana**
+(`bartsilvera12-gif/neura-erp-mexicana`), y de ahí se portó: recetario,
+costeo, y el flujo *Fabricar* que descuenta insumos y entrega el terminado.
+
+**Las cuatro tablas ya estaban.** `recetas`, `receta_items`, `producciones` y
+`produccion_items` venían en el schema origen, columna por columna iguales a las
+de La Mexicana salvo su `sucursal_id` (que es multi-sucursal y acá no hace
+falta). También estaban `movimientos_inventario.produccion_id` y la función de
+costeo `fn_receta_costeo`. El clon las trajo todas: el script 05 no crea
+ninguna, solo amplía un CHECK.
+
+**Qué se reescribió del original.** El flujo de fabricación no se pudo copiar
+tal cual, porque el modelo de inventario de este ERP es distinto:
+
+| | La Mexicana | Acá |
+|---|---|---|
+| Stock | solo `productos.stock_actual` | `productos.stock_actual` **y** `inventario_stock_ubicacion` |
+| Atomicidad | PostgREST + rollback "best effort" | pool de Postgres con `BEGIN`/`COMMIT` |
+| Dónde se fabrica | no aplica | depósito explícito (nunca un camión) |
+
+El saldo por ubicación es de donde los repartos leen el stock real de cada
+camión y del depósito (`lib/repartos/server/repartos-pg.ts`). Si la fabricación
+tocara solo el total global, Inventario → Depósitos y Stock por camión quedarían
+mintiendo. Y el rollback por compensación puede dejar una producción a medias si
+el propio borrado falla; con una transacción de verdad, o entra todo o no entra
+nada. Está en `src/lib/produccion/crear-produccion-pg.ts`, con el mismo patrón
+que las recepciones de compra.
+
+**La ubicación.** La fabricación consume materia prima del depósito y entrega el
+terminado ahí mismo. Con un solo depósito cargado no se pregunta nada; con
+varios, el modal pide elegir. Un camión nunca es candidato. Si no hay ninguno,
+la API lo dice y hay que crear uno en Inventario → Depósitos / Ubicaciones.
+
+**Disponibilidad.** Se valida contra `productos.stock_actual`, que es el total de
+la empresa y el número que gobierna en todo el ERP. El saldo por ubicación es el
+desglose y al consumir se le resta con piso en 0: si la materia prima se recibió
+en un depósito distinto del que fabrica, ese desglose queda en 0 y el total sigue
+siendo el que manda.
+
+**Permisos.** Editar el recetario (crear/editar/borrar recetas e insumos) es solo
+admin y supervisor. **Fabricar lo puede hacer cualquier rol**: es una operación
+de planta, no de configuración. El guard real está en las rutas
+(`src/lib/recetas/require-edicion-recetas.ts`), no en los botones.
+
+**Pendiente de decidir.** El pan terminado entra al depósito. Para subirlo a un
+camión hoy existen las dos operaciones de repartos: `carga` (que trata la
+mercadería como nueva y sube el total global) y `transferencia` (camión → otra
+ubicación). No hay un "depósito → camión" que descuente el depósito. Para la
+operación de la panadería eso habría que definirlo; no lo toqué porque cambia el
+flujo de repartos, que no estaba en el pedido.
+
 ### Lo que queda fuera
 
 `sorteos`, `crm`, `marketing`, `marketing_ops`, `campanas`, `conversaciones` y el
-resto del stack omnicanal, `proyectos` (y con él `/dashboard/produccion`),
-`soporte`, `planes`, `chat_interno`, `etiquetas`, `cobros`, `presupuestos`,
-`recepcion`, `recibos`, `remision`, `recetas`.
+resto del stack omnicanal, `proyectos` (y con él `/dashboard/produccion`, que es
+el reporte gerencial y no tiene nada que ver con fabricar), `soporte`, `planes`,
+`chat_interno`, `etiquetas`, `cobros`, `presupuestos`, `recepcion`, `recibos`,
+`remision`.
 
 `contabilidad` también queda fuera, y no es un olvido: ese slug **no tiene
 ninguna vista** en el código (no aparece ni en `Sidebar.tsx` ni en
@@ -269,10 +329,9 @@ Ya quedaron apuntando ahí en el repo:
 - **Proyectos nativos** (`android/`, `ios/`): `capacitor.config.ts` ya dice
   `py.com.neura.amasso`, pero los proyectos nativos no se regeneraron. Si se va a
   publicar una app, correr `npx cap sync` y revisar nombre y bundle id.
-- **Recetas de producción**: el brief de Amasso pide un módulo de recetas que
-  descuente materias primas por producción. No existe en el código — `recetas`
-  es una fila muerta del catálogo, sin vistas ni tablas detrás — y no estaba en
-  la lista de 18 módulos, así que no se incluyó. Es desarrollo nuevo.
+- **Recetas**: portado de La Mexicana (ver §2.1). Falta correr el script 05 y
+  cargar al menos un depósito. Lo que quedó sin definir es cómo sube el pan del
+  depósito al camión.
 - **Devoluciones**: el brief también las menciona. `distribuidorajmerp` trae
   repartos, stock por camión, rendiciones y cierre, pero la vista
   `/ventas/devoluciones` existe en el ERP de Ferrecolor y no en este. Si hace
