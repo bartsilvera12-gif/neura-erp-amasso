@@ -29,7 +29,7 @@ cada uno.
 | 03 | `03_empresa_admin_modulos.sql` | Empresa + usuario admin + los 19 módulos habilitados. |
 | 04 | `04_verificacion.sql` | Solo lectura. Compara origen vs destino y busca fugas. |
 | 05 | `05_recetas_produccion.sql` | Habilita `produccion` y `carga_proveedor` en el CHECK de `movimientos_inventario.origen`. Sin esto fallan la fabricación y la carga de camión. |
-| 06 | `06_agregar_usuario_admin.sql` | Opcional y reusable. Da de alta otro usuario `admin`, o le resetea la contraseña si ya existía. |
+| 06 | `06_vincular_usuario_admin.sql` | Opcional y reusable. Vincula con la empresa un usuario que ya existe en Supabase Auth. Lo busca por email; no toca su contraseña. |
 
 ### Un detalle de GoTrue, por si lo volvés a ver
 
