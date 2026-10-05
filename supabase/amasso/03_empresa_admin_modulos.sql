@@ -87,6 +87,8 @@ DECLARE
   ---------------------------------------------------------------------------
   v_auth_id    uuid;
   v_usuario_id uuid;
+  v_col        text;
+  v_sets       text;
   v_crypt_schema text;
   v_cols      text;
   v_vals      text;
@@ -151,6 +153,36 @@ BEGIN
     RAISE NOTICE 'auth: usuario % creado (%)', v_email, v_auth_id;
   ELSE
     RAISE NOTICE 'auth: el usuario % ya existía (%) — no se toca su contraseña', v_email, v_auth_id;
+  END IF;
+
+  -- GoTrue lee varias columnas de token de auth.users dentro de strings de Go que
+  -- NO aceptan NULL. Un INSERT directo las deja en NULL (solo algunas traen
+  -- default) y el login falla con "Database error querying schema", que suena a
+  -- problema de schema y no lo es. Se normalizan a cadena vacía.
+  --
+  -- Va fuera del IF a propósito: corre tanto para el usuario que acabamos de
+  -- crear como para uno que ya existía y hubiera quedado mal de antes. No toca
+  -- la contraseña ni ningún otro dato.
+  --
+  -- Columna por columna porque, según la versión de GoTrue, algunas no existen.
+  v_sets := '';
+  FOREACH v_col IN ARRAY ARRAY[
+    'confirmation_token', 'recovery_token', 'email_change',
+    'email_change_token_new', 'email_change_token_current',
+    'phone_change', 'phone_change_token', 'reauthentication_token'
+  ]
+  LOOP
+    IF EXISTS (
+      SELECT 1 FROM pg_attribute a
+      WHERE a.attrelid = 'auth.users'::regclass
+        AND a.attname = v_col AND a.attnum > 0 AND NOT a.attisdropped
+    ) THEN
+      v_sets := v_sets || format('%I = coalesce(%I, %L), ', v_col, v_col, '');
+    END IF;
+  END LOOP;
+  IF v_sets <> '' THEN
+    EXECUTE format('UPDATE auth.users SET %s updated_at = now() WHERE id = %L', v_sets, v_auth_id);
+    RAISE NOTICE 'auth: columnas de token normalizadas (NULL -> cadena vacía)';
   END IF;
 
   -- --------------------------------------------------------------- 2. empresa

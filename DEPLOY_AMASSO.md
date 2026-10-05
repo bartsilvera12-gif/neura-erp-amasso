@@ -30,6 +30,20 @@ cada uno.
 | 04 | `04_verificacion.sql` | Solo lectura. Compara origen vs destino y busca fugas. |
 | 05 | `05_recetas_produccion.sql` | Habilita `produccion` y `carga_proveedor` en el CHECK de `movimientos_inventario.origen`. Sin esto fallan la fabricación y la carga de camión. |
 
+### Un detalle de GoTrue, por si lo volvés a ver
+
+El script 03 crea el usuario con un `INSERT` directo en `auth.users`, y GoTrue
+lee varias columnas de token de esa tabla dentro de strings de Go que **no
+aceptan NULL**. Solo algunas traen default `''`, así que un insert directo deja
+el resto en NULL y el login falla con:
+
+> Database error querying schema
+
+Que suena a problema del schema del ERP y no tiene nada que ver: el schema anda
+perfecto, el que se cae es el driver de GoTrue leyendo `confirmation_token`,
+`recovery_token`, `email_change` y `email_change_token_new`. El 03 ya las
+normaliza a cadena vacía, tanto al crear el usuario como si ya existía.
+
 ### Antes de ejecutar
 
 El schema origen es **`distribuidorajmerp`** y ya está fijado en los scripts 01,
