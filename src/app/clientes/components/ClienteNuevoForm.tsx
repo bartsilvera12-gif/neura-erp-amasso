@@ -27,6 +27,9 @@ import type { Cliente, TipoCliente, OrigenCliente } from "@/lib/clientes/types";
 import { ClienteDatosSifenReceptorForm } from "@/components/clientes/ClienteDatosSifenReceptorForm";
 import { formatTelefonoPy } from "@/lib/clientes/format-telefono";
 import type { Plan } from "@/lib/planes/types";
+import {
+  primerError, validarEmail, validarNombre, validarRuc, validarTelefono,
+} from "@/lib/validacion/campos";
 
 export type ClienteNuevoFormProps = {
   variant?: "page" | "modal";
@@ -246,15 +249,29 @@ function ClienteNuevoFormInner({ variant = "page", onCreated, onCancel, fromPros
   const upper = ["empresa", "razon_social", "nombre_contacto", "ciudad", "pais", "condicion_pago", "direccion", "sifen_codigo_pais"];
   const lower = ["email", "email_secundario"];
 
+  /**
+   * Normaliza al SALIR del campo, no en cada tecla.
+   *
+   * Reescribir el valor mientras se tipea mueve el cursor al final: en un input
+   * `type="email"` el navegador ni siquiera expone la posición para
+   * restaurarla, y al corregir algo en el medio el texto sale desordenado
+   * (`p@gmail.comrueba`). Pasa lo mismo con el filtro de números del nombre.
+   */
+  function handleBlur(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
+    const { name, value } = e.target;
+    const type = (e.target as HTMLInputElement).type;
+    let normalized = value.trim();
+    if (lower.includes(name) || type === "email") normalized = normalized.toLowerCase();
+    else if (upper.includes(name)) normalized = normalized.toUpperCase();
+    if (name === "nombre_contacto") normalized = normalized.replace(/[0-9]/g, "");
+    if (normalized === value) return;
+    setForm((prev) => ({ ...prev, [name]: normalized }));
+  }
+
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
     setError(null);
     const { name, value } = e.target;
-    const type = (e.target as HTMLInputElement).type;
-    let normalized = value;
-    if (lower.includes(name) || type === "email") normalized = value.toLowerCase();
-    else if (upper.includes(name)) normalized = value.toUpperCase();
-    // El nombre de una persona no lleva números (evita que se cuele un teléfono en el nombre).
-    if (name === "nombre_contacto") normalized = normalized.replace(/[0-9]/g, "");
+    const normalized = value;
     setForm((prev) => {
       const next = { ...prev, [name]: normalized };
       // Espejo: mientras el usuario no toque la razón social, sigue al nombre del cliente
@@ -289,6 +306,17 @@ function ClienteNuevoFormInner({ variant = "page", onCreated, onCancel, fromPros
     if (!form.nombre_contacto.trim()) return setError("El nombre de contacto es obligatorio.");
     if (form.tipo_cliente === "empresa" && !form.empresa.trim())
       return setError("El nombre de empresa es obligatorio.");
+
+    // Formato de los campos que alimentan el libro de ventas y, el día que se
+    // encienda, el XML de la factura electrónica.
+    const malFormado = primerError([
+      { etiqueta: "Nombre de contacto", error: validarNombre(form.nombre_contacto, "El nombre") },
+      { etiqueta: "Empresa", error: form.tipo_cliente === "empresa" ? validarNombre(form.empresa, "El nombre") : null },
+      { etiqueta: "RUC", error: validarRuc(form.ruc) },
+      { etiqueta: "Teléfono", error: validarTelefono(form.telefono) },
+      { etiqueta: "Email", error: validarEmail(form.email) },
+    ]);
+    if (malFormado) return setError(malFormado);
 
     if (form.condicion_pago === "MENSUAL" && form.estado === "activo") {
       const dur = parseInt(formSusc.duracion_meses, 10) || 0;
@@ -535,6 +563,7 @@ function ClienteNuevoFormInner({ variant = "page", onCreated, onCancel, fromPros
                     name="empresa"
                     value={form.empresa}
                     onChange={handleChange}
+                    onBlur={handleBlur}
                     placeholder="CÓMO CONOCÉS A LA EMPRESA"
                     className={`${inputClass} uppercase`}
                   />
@@ -546,6 +575,7 @@ function ClienteNuevoFormInner({ variant = "page", onCreated, onCancel, fromPros
                     name="ruc"
                     value={form.ruc}
                     onChange={handleChange}
+                    onBlur={handleBlur}
                     placeholder="00000000-0"
                     className={inputClass}
                   />
@@ -563,6 +593,7 @@ function ClienteNuevoFormInner({ variant = "page", onCreated, onCancel, fromPros
                     name="nombre_contacto"
                     value={form.nombre_contacto}
                     onChange={handleChange}
+                    onBlur={handleBlur}
                     placeholder="NOMBRE Y APELLIDO"
                     className={`${inputClass} uppercase`}
                     required
@@ -575,6 +606,7 @@ function ClienteNuevoFormInner({ variant = "page", onCreated, onCancel, fromPros
                     name="documento"
                     value={form.documento}
                     onChange={handleChange}
+                    onBlur={handleBlur}
                     placeholder="CI sin puntos"
                     className={inputClass}
                   />
@@ -597,6 +629,7 @@ function ClienteNuevoFormInner({ variant = "page", onCreated, onCancel, fromPros
                     name="nombre_contacto"
                     value={form.nombre_contacto}
                     onChange={handleChange}
+                    onBlur={handleBlur}
                     placeholder="NOMBRE Y APELLIDO"
                     className={`${inputClass} uppercase`}
                     required
@@ -636,6 +669,7 @@ function ClienteNuevoFormInner({ variant = "page", onCreated, onCancel, fromPros
                 name="razon_social"
                 value={form.razon_social}
                 onChange={handleChange}
+                onBlur={handleBlur}
                 placeholder={
                   form.tipo_cliente === "empresa"
                     ? "Razón social legal (como en el RUC)"
@@ -651,6 +685,7 @@ function ClienteNuevoFormInner({ variant = "page", onCreated, onCancel, fromPros
                 name="ruc_factura"
                 value={form.ruc_factura}
                 onChange={handleChange}
+                onBlur={handleBlur}
                 placeholder="00000000-0"
                 className={inputClass}
               />
@@ -669,6 +704,7 @@ function ClienteNuevoFormInner({ variant = "page", onCreated, onCancel, fromPros
                 name="email"
                 value={form.email}
                 onChange={handleChange}
+                onBlur={handleBlur}
                 placeholder="contacto@empresa.com"
                 className={inputClass}
               />
@@ -681,6 +717,7 @@ function ClienteNuevoFormInner({ variant = "page", onCreated, onCancel, fromPros
                 name="direccion"
                 value={form.direccion}
                 onChange={handleChange}
+                onBlur={handleBlur}
                 placeholder="Av. / Calle y número"
                 className={inputClass}
               />
@@ -694,6 +731,7 @@ function ClienteNuevoFormInner({ variant = "page", onCreated, onCancel, fromPros
                   name="ciudad"
                   value={form.ciudad}
                   onChange={handleChange}
+                  onBlur={handleBlur}
                   placeholder="ASUNCIÓN"
                   className={`${inputClass} uppercase`}
                 />
@@ -705,6 +743,7 @@ function ClienteNuevoFormInner({ variant = "page", onCreated, onCancel, fromPros
                   name="pais"
                   value={form.pais}
                   onChange={handleChange}
+                  onBlur={handleBlur}
                   className={`${inputClass} uppercase`}
                 />
               </div>
@@ -790,6 +829,7 @@ function ClienteNuevoFormInner({ variant = "page", onCreated, onCancel, fromPros
                   name="condicion_pago"
                   value={form.condicion_pago}
                   onChange={handleChange}
+                  onBlur={handleBlur}
                   className={inputClass}
                 >
                   <option value="CONTADO">Contado</option>

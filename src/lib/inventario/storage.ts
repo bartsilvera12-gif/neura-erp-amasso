@@ -365,8 +365,20 @@ function calcularDelta(tipo: TipoMovimiento, cantidad: number): number {
 export type NuevoMovimientoData = Omit<MovimientoInventario, "id">;
 
 /**
- * Registra un movimiento y actualiza stock_actual del producto.
- * empresa_id se obtiene del usuario; RLS valida acceso.
+ * @deprecated NO USAR. Usar `POST /api/inventario/movimientos`.
+ *
+ * Esta función escribe desde el navegador y tiene dos fallas que QA encontró
+ * el 05/10/2026:
+ *
+ *   · Asienta el stock SOLO en `productos.stock_actual`. Nunca toca
+ *     `inventario_stock_ubicacion`, que es de donde Depósitos y los repartos
+ *     leen el saldo real, así que el desglose por depósito queda vacío.
+ *   · No es atómica: lee el stock, inserta el movimiento y actualiza el
+ *     producto en tres viajes sueltos. Dos envíos seguidos entran los dos y el
+ *     stock suma el doble.
+ *
+ * El reemplazo es `lib/inventario/server/movimientos-pg.ts`: una transacción
+ * con la fila del producto bloqueada, que escribe las dos tablas.
  */
 export async function saveMovimiento(
   mov: NuevoMovimientoData

@@ -110,7 +110,12 @@ export default function ProveedorForm({
             type="email"
             className={inputClass}
             value={values.email}
-            onChange={(e) => patch("email", e.target.value.toLowerCase())}
+            // Sin transformar mientras se tipea: en un input type="email" el
+            // navegador no deja restaurar la posición del cursor, así que
+            // reescribir el valor en cada tecla lo manda al final y el texto
+            // sale desordenado. Se normaliza al salir del campo.
+            onChange={(e) => patch("email", e.target.value)}
+            onBlur={(e) => patch("email", e.target.value.trim().toLowerCase())}
             disabled={disabled}
           />
         </div>

@@ -10,6 +10,19 @@ interface Ubicacion {
   tipo: string;
   parent_id: string | null;
   activo: boolean;
+  /** Cuántos productos distintos tienen saldo acá. Lo calcula la API. */
+  productos?: number;
+  /** Suma de unidades de todos esos productos. */
+  unidades?: number;
+}
+
+/** Una línea del detalle que se abre al tocar el stock de una ubicación. */
+interface StockDeUbicacion {
+  producto_id: string;
+  producto_nombre: string;
+  sku: string | null;
+  unidad_medida: string | null;
+  stock_actual: number;
 }
 
 // `camion` no se ofrece para crear: una ubicación de camión la crea el alta del
@@ -39,6 +52,35 @@ export default function UbicacionesPage() {
   const [tipo, setTipo] = useState<string>("deposito");
   const [parentId, setParentId] = useState("");
   const [creating, setCreating] = useState(false);
+  /** Ubicación cuyo detalle de stock está abierto, y lo que ya se cargó. */
+  const [detalleId, setDetalleId] = useState<string | null>(null);
+  const [detalle, setDetalle] = useState<Record<string, StockDeUbicacion[]>>({});
+  const [cargandoDetalle, setCargandoDetalle] = useState(false);
+
+  function fmtNum(n: number) {
+    return Number(n).toLocaleString("es-PY", { maximumFractionDigits: 3 });
+  }
+
+  async function toggleDetalle(id: string) {
+    if (detalleId === id) {
+      setDetalleId(null);
+      return;
+    }
+    setDetalleId(id);
+    if (detalle[id]) return; // ya cargado
+    setCargandoDetalle(true);
+    try {
+      const res = await fetch(`/api/inventario/ubicaciones/${id}/stock`, { credentials: "include" });
+      const body = await res.json();
+      if (res.ok && body?.success !== false) {
+        setDetalle((prev) => ({ ...prev, [id]: (body.data?.stock ?? []) as StockDeUbicacion[] }));
+      }
+    } catch {
+      /* el botón queda abierto y vacío; recargar la página reintenta */
+    } finally {
+      setCargandoDetalle(false);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -297,6 +339,9 @@ export default function UbicacionesPage() {
                 <th className="text-left px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.1em]">
                   Ubicación padre
                 </th>
+                <th className="text-right px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.1em]">
+                  Stock
+                </th>
                 <th className="text-left px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.1em]">
                   Estado
                 </th>
@@ -344,6 +389,7 @@ export default function UbicacionesPage() {
                         </select>
                       </td>
                       <td className="px-4 py-2 text-slate-400">—</td>
+                      <td className="px-4 py-2 text-slate-400 text-right">—</td>
                       <td className="px-4 py-2 text-right">
                         <div className="flex items-center justify-end gap-3">
                           <button
@@ -381,6 +427,22 @@ export default function UbicacionesPage() {
                     </td>
                     <td className="px-4 py-3 text-slate-500">{u.tipo}</td>
                     <td className="px-4 py-3 text-slate-500">{parent?.nombre ?? "—"}</td>
+                    <td className="px-4 py-3 text-right">
+                      {(u.productos ?? 0) === 0 ? (
+                        <span className="text-slate-300">vacío</span>
+                      ) : (
+                        <button
+                          onClick={() => toggleDetalle(u.id)}
+                          className="text-slate-700 hover:text-slate-900 hover:underline"
+                          title="Ver qué hay en esta ubicación"
+                        >
+                          {fmtNum(u.unidades ?? 0)}{" "}
+                          <span className="text-slate-400">
+                            · {u.productos} prod.
+                          </span>
+                        </button>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       {u.activo ? (
                         <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
@@ -422,6 +484,42 @@ export default function UbicacionesPage() {
                   </tr>
                 );
               })}
+              {/* Detalle del stock de la ubicación abierta */}
+              {detalleId && (
+                <tr className="bg-slate-50/60">
+                  <td colSpan={6} className="px-6 py-3">
+                    {cargandoDetalle && !detalle[detalleId] ? (
+                      <p className="text-xs text-slate-400">Cargando…</p>
+                    ) : (detalle[detalleId] ?? []).length === 0 ? (
+                      <p className="text-xs text-slate-400">No hay stock en esta ubicación.</p>
+                    ) : (
+                      <table className="w-full text-xs">
+                        <thead className="text-slate-500">
+                          <tr>
+                            <th className="text-left py-1 font-semibold">Producto</th>
+                            <th className="text-left py-1 font-semibold">SKU</th>
+                            <th className="text-right py-1 font-semibold">Cantidad</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(detalle[detalleId] ?? []).map((r) => (
+                            <tr key={r.producto_id} className="border-t border-slate-200">
+                              <td className="py-1.5 text-slate-700">{r.producto_nombre}</td>
+                              <td className="py-1.5 text-slate-400">{r.sku ?? "—"}</td>
+                              <td className="py-1.5 text-right font-medium text-slate-800">
+                                {fmtNum(r.stock_actual)}
+                                {r.unidad_medida ? (
+                                  <span className="ml-1 font-normal text-slate-400">{r.unidad_medida}</span>
+                                ) : null}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         )}

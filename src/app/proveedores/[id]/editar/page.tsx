@@ -5,6 +5,9 @@ import { useRouter, useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import ProveedorForm, { emptyProveedorForm, type ProveedorFormValues } from "@/app/proveedores/ProveedorForm";
 import { getProveedor, updateProveedor } from "@/lib/proveedores/storage";
+import {
+  primerError, validarEmail, validarNombre, validarRuc, validarTelefono,
+} from "@/lib/validacion/campos";
 
 export default function EditarProveedorPage() {
   const router = useRouter();
@@ -55,6 +58,16 @@ export default function EditarProveedorPage() {
     setError(null);
     if (!form.nombre.trim()) {
       setError("Completá el nombre.");
+      return;
+    }
+    const malFormado = primerError([
+      { etiqueta: "Razón social", error: validarNombre(form.nombre, "La razón social") },
+      { etiqueta: "RUC", error: validarRuc(form.ruc) },
+      { etiqueta: "Teléfono", error: validarTelefono(form.telefono) },
+      { etiqueta: "Email", error: validarEmail(form.email) },
+    ]);
+    if (malFormado) {
+      setError(malFormado);
       return;
     }
     setSaving(true);

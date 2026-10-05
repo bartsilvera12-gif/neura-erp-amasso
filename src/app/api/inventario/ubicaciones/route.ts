@@ -4,6 +4,7 @@ import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema"
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import { listUbicaciones, insertUbicacion } from "@/lib/inventario/server/catalogos-pg";
+import { resumenStockPorUbicacion } from "@/lib/inventario/server/movimientos-pg";
 import { normalizeUpperText, normalizeUpperNullable } from "@/lib/text/normalize";
 
 export async function GET(request: NextRequest) {
@@ -14,7 +15,18 @@ export async function GET(request: NextRequest) {
     const url = new URL(request.url);
     const todas = url.searchParams.get("todas") === "1";
     const rows = await listUbicaciones(schema, ctx.auth.empresa_id, { soloActivas: !todas });
-    return NextResponse.json(successResponse({ ubicaciones: rows }));
+
+    // Cuánto hay en cada ubicación. Sin esto la pantalla de Depósitos listaba
+    // los depósitos pero no el stock, que es justamente para lo que se mira.
+    const resumen = await resumenStockPorUbicacion(schema, ctx.auth.empresa_id);
+    const porId = new Map(resumen.map((r) => [r.ubicacion_id, r]));
+    const conStock = rows.map((u) => ({
+      ...u,
+      productos: porId.get(u.id)?.productos ?? 0,
+      unidades: porId.get(u.id)?.unidades ?? 0,
+    }));
+
+    return NextResponse.json(successResponse({ ubicaciones: conStock }));
   } catch (err) {
     console.error("[/api/inventario/ubicaciones GET]", err instanceof Error ? err.message : err);
     return NextResponse.json(errorResponse("No se pudieron cargar las ubicaciones."), { status: 500 });

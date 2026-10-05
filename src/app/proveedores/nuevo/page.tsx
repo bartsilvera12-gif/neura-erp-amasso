@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import ProveedorForm, { emptyProveedorForm, type ProveedorFormValues } from "@/app/proveedores/ProveedorForm";
 import { createProveedor } from "@/lib/proveedores/storage";
+import {
+  primerError, validarEmail, validarNombre, validarRuc, validarTelefono,
+} from "@/lib/validacion/campos";
 
 export default function NuevoProveedorPage() {
   const router = useRouter();
@@ -19,6 +22,17 @@ export default function NuevoProveedorPage() {
       setError("Completá el nombre.");
       return;
     }
+    // Formato de los campos que después alimentan reportes y el libro de compras.
+    const malFormado = primerError([
+      { etiqueta: "Razón social", error: validarNombre(form.nombre, "La razón social") },
+      { etiqueta: "RUC", error: validarRuc(form.ruc) },
+      { etiqueta: "Teléfono", error: validarTelefono(form.telefono) },
+      { etiqueta: "Email", error: validarEmail(form.email) },
+    ]);
+    if (malFormado) {
+      setError(malFormado);
+      return;
+    }
     setSaving(true);
     const payload = {
       nombre: form.nombre.trim(),
@@ -26,7 +40,7 @@ export default function NuevoProveedorPage() {
       razon_social: form.razon_social.trim() || null,
       ruc: form.ruc.trim() || null,
       telefono: form.telefono.trim() || null,
-      email: form.email.trim() || null,
+      email: form.email.trim().toLowerCase() || null,
       direccion: form.direccion.trim() || null,
       contacto: form.contacto.trim() || null,
       estado: form.estado,

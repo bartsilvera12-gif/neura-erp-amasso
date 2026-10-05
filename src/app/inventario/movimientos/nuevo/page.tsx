@@ -3,12 +3,20 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
-import { getProductos, saveMovimiento } from "@/lib/inventario/storage";
+import { getProductos } from "@/lib/inventario/storage";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import type { Producto, TipoMovimiento, OrigenMovimiento } from "@/lib/inventario/types";
+
+type UbicacionOpcion = { id: string; nombre: string; tipo: string };
 
 export default function NuevoMovimientoPage() {
   const router = useRouter();
   const [productos, setProductos] = useState<Producto[]>([]);
+  const [ubicaciones, setUbicaciones] = useState<UbicacionOpcion[]>([]);
+  // Sin este candado, un doble clic entraba dos movimientos y el stock sumaba
+  // el doble. Es lo que reportó QA el 05/10/2026.
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     producto_id: "",
@@ -16,6 +24,7 @@ export default function NuevoMovimientoPage() {
     cantidad: "",
     costo_unitario: "",
     origen: "compra" as OrigenMovimiento,
+    ubicacion_id: "",
   });
 
   useEffect(() => {
@@ -23,6 +32,19 @@ export default function NuevoMovimientoPage() {
     getProductos().then((data) => {
       if (!cancelled) setProductos(data);
     });
+    (async () => {
+      try {
+        const res = await fetchWithSupabaseSession("/api/inventario/ubicaciones");
+        const body = await res.json();
+        if (cancelled || !res.ok || body?.success === false) return;
+        const rows = (body.data?.ubicaciones ?? []) as UbicacionOpcion[];
+        setUbicaciones(rows);
+        // Con un solo depósito no hay nada que elegir: se preselecciona.
+        if (rows.length === 1) setForm((prev) => ({ ...prev, ubicacion_id: rows[0].id }));
+      } catch {
+        /* la API del alta avisa con el motivo si no hay ninguna */
+      }
+    })();
     return () => { cancelled = true; };
   }, []);
 
@@ -51,27 +73,51 @@ export default function NuevoMovimientoPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (guardando) return;
 
     const productoSeleccionado = productos.find((p) => p.id === form.producto_id);
-    if (!productoSeleccionado) return;
+    if (!productoSeleccionado) {
+      setError("Elegí un producto.");
+      return;
+    }
 
     const cantidadNum =
       form.tipo === "AJUSTE"
         ? parseFloat(form.cantidad)
         : Math.abs(parseFloat(form.cantidad));
+    if (!Number.isFinite(cantidadNum) || (form.tipo !== "AJUSTE" && !(cantidadNum > 0))) {
+      setError("Poné una cantidad válida.");
+      return;
+    }
 
-    const guardado = await saveMovimiento({
-      producto_id: productoSeleccionado.id,
-      producto_nombre: productoSeleccionado.nombre,
-      producto_sku: productoSeleccionado.sku,
-      tipo: form.tipo,
-      cantidad: cantidadNum,
-      costo_unitario: parseFloat(form.costo_unitario) || 0,
-      origen: form.origen,
-      fecha: new Date().toISOString(),
-    });
-
-    if (guardado) router.push("/inventario/movimientos");
+    setGuardando(true);
+    setError(null);
+    try {
+      // El alta va por la API y no desde el navegador: tiene que tocar el stock
+      // del producto y el saldo del depósito en la misma transacción.
+      const res = await fetchWithSupabaseSession("/api/inventario/movimientos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          producto_id: productoSeleccionado.id,
+          tipo: form.tipo,
+          cantidad: cantidadNum,
+          costo_unitario: parseFloat(form.costo_unitario) || 0,
+          origen: form.origen,
+          ubicacion_id: form.ubicacion_id || null,
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok || body?.success === false) {
+        setError(body?.error ?? "No se pudo registrar el movimiento.");
+        return;
+      }
+      router.push("/inventario/movimientos");
+    } catch {
+      setError("Error de red al registrar el movimiento.");
+    } finally {
+      setGuardando(false);
+    }
   }
 
   const productoSeleccionado = productos.find((p) => p.id === form.producto_id);
@@ -140,6 +186,40 @@ export default function NuevoMovimientoPage() {
               </select>
             </div>
           </div>
+
+          {/* Depósito: de dónde sale o a dónde entra la mercadería. Con uno solo
+              no se pregunta nada; con varios hay que elegir, porque mover del
+              lugar equivocado no se nota hasta el inventario físico. */}
+          {ubicaciones.length > 1 && (
+            <div>
+              <label className={labelClass}>Depósito</label>
+              <select
+                name="ubicacion_id"
+                value={form.ubicacion_id}
+                onChange={handleChange}
+                className={inputClass}
+                required
+              >
+                <option value="">Elegí el depósito…</option>
+                {ubicaciones.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.nombre}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {ubicaciones.length === 1 && (
+            <p className="text-xs text-gray-500">
+              Se registra en <b>{ubicaciones[0].nombre}</b>.
+            </p>
+          )}
+
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
 
           {/* Cantidad + Costo unitario */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -229,9 +309,10 @@ export default function NuevoMovimientoPage() {
           <div className="flex gap-4 pt-2">
             <button
               type="submit"
-              className="bg-gray-900 text-white px-5 py-3 rounded-lg text-sm hover:bg-gray-700 transition-colors"
+              disabled={guardando}
+              className="bg-gray-900 text-white px-5 py-3 rounded-lg text-sm hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Guardar movimiento
+              {guardando ? "Guardando…" : "Guardar movimiento"}
             </button>
             <button
               type="button"

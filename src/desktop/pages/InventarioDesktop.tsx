@@ -248,7 +248,7 @@ export default function InventarioPage() {
                 <th className="py-3 font-medium text-right">
                   <span title="(precio - costo) / precio × 100">Margen s/venta</span>
                 </th>
-                <th className="py-3 font-medium text-right w-40">Acciones</th>
+                <th className="py-3 pl-6 font-medium text-center w-44">Acciones</th>
               </tr>
             </thead>
 
@@ -313,11 +313,13 @@ export default function InventarioPage() {
                           })()
                         : <span className="text-gray-300">—</span>}
                     </td>
-                    <td className={`py-4 text-right tabular-nums font-semibold ${margenColor(margen)}`}>
+                    <td className={`py-4 pr-4 text-right tabular-nums font-semibold ${margenColor(margen)}`}>
                       {margen.toFixed(2)}%
                     </td>
-                    <td className="py-4">
-                      <div className="flex items-center justify-end gap-1.5">
+                    <td className="py-4 pl-6">
+                      {/* Centradas y separadas del margen: pegadas al número de
+                          al lado se leía como si fueran parte de la columna. */}
+                      <div className="flex items-center justify-center gap-1.5">
                         <Link
                           href={`/inventario/${p.id}/editar`}
                           title={`Editar ${p.nombre}`}
