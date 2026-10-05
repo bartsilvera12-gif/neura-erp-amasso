@@ -3,7 +3,7 @@
 Copia las variables de entorno de una aplicación Coolify a otra, aplicando las
 transformaciones que necesita el ERP de Amasso.
 
-Pensado para clonar desde la app de `instemaq` (sistemas-propio) hacia la app
+Pensado para clonar desde la app de `distribuidorajm` hacia la app
 nueva, sin arrastrar la identidad de empresa ni los secretos del ERP original.
 
 REGLAS (ver DEPLOY_AMASSO.md)

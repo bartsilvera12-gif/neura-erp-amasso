@@ -28,8 +28,9 @@ cada uno.
 | 02 | `02_catalogo_modulos.sql` | Copia los catálogos de producto: `modulos` y `dashboard_views` (las pestañas del tablero principal). |
 | 03 | `03_empresa_admin_modulos.sql` | Empresa + usuario admin + los 19 módulos habilitados. |
 | 04 | `04_verificacion.sql` | Solo lectura. Compara origen vs destino y busca fugas. |
-| 05 | `05_recetas_produccion.sql` | Habilita `produccion` y `carga_proveedor` en el CHECK de `movimientos_inventario.origen`. Sin esto fallan la fabricación y la carga de camión. |
+| 05 | `05_recetas_produccion.sql` | Completa el CHECK de `movimientos_inventario.origen` con `produccion`, `carga_proveedor` y `ajuste_manual`. Sin esto fallan la fabricación, la carga de camión y el ajuste de inventario. |
 | 06 | `06_vincular_usuario_admin.sql` | Opcional y reusable. Vincula con la empresa un usuario que ya existe en Supabase Auth. Lo busca por email; no toca su contraseña. |
+| 07 | `07_auditoria.sql` | Solo lectura. Siete chequeos de salud: CHECK de vocabulario, fugas, RLS, grants a `anon`, catálogos, realtime y conteo de objetos. |
 
 ### Un detalle de GoTrue, por si lo volvés a ver
 
@@ -201,14 +202,19 @@ admin y supervisor. **Fabricar lo puede hacer cualquier rol**: es una operación
 de planta, no de configuración. El guard real está en las rutas
 (`src/lib/recetas/require-edicion-recetas.ts`), no en los botones.
 
-**Un bug heredado que arregla el mismo script.** El CHECK de
-`movimientos_inventario.origen` tampoco aceptaba `carga_proveedor`, que es lo que
-escribe la "Carga de proveedor" de la pantalla del camión
-(`src/app/api/repartos/[id]/movimientos/route.ts`). No es nuevo: el
-`09_stock_movil.sql` de Distribuidora JM lo había agregado y el
-`37_movimientos_vocabulario.sql`, que corrió después, reescribió la lista a mano
-sin él. El clon copió ese estado, así que **Distribuidora JM tiene la misma
-operación rota en producción**. El script 05 agrega los dos valores.
+**Dos bugs heredados que arregla el mismo script.** El CHECK de
+`movimientos_inventario.origen` tampoco aceptaba `carga_proveedor` —lo que
+escribe la "Carga de proveedor" de la pantalla del camión— ni `ajuste_manual`
+—lo que escriben el alta manual de movimiento de inventario y el importador de
+productos—. No son nuevos: el `37_movimientos_vocabulario.sql` de Distribuidora
+JM reescribió la lista a mano enumerando lo que creyó que usaba el código, y se
+le escaparon los dos. El clon copió ese estado, así que **Distribuidora JM tiene
+las dos operaciones rotas en producción**. El script 05 agrega los tres valores
+(los dos más `produccion`).
+
+La lección para el próximo clon: ese CHECK viene del sistema de origen y enumera
+SU vocabulario, no el de este código. Es la familia de bugs que más veces mordió
+acá, y el script `07_auditoria.sql` la busca sistemáticamente.
 
 **Pendiente de decidir.** El pan terminado entra al depósito. Para subirlo a un
 camión hoy existen las dos operaciones de repartos: `carga` (que trata la

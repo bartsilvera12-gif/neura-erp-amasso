@@ -1,5 +1,5 @@
 -- =============================================================================
--- 05 · KARDEX — habilitar los orígenes 'produccion' y 'carga_proveedor'
+-- 05 · KARDEX — completar los orígenes que el código escribe
 -- =============================================================================
 -- Las tablas del recetario (`recetas`, `receta_items`, `producciones`,
 -- `produccion_items`) y la columna `movimientos_inventario.produccion_id` YA
@@ -13,7 +13,7 @@
 --     compra, recepcion, venta, anulacion, transferencia, rendicion_reparto,
 --     inventario_inicial
 --
---   Y el código escribe dos que no están en esa lista. Los dos rompen igual:
+--   Y el código escribe TRES que no están en esa lista. Los tres rompen igual:
 --
 --     new row for relation "movimientos_inventario" violates check
 --     constraint "movimientos_inventario_origen_check"
@@ -30,6 +30,13 @@
 --      lista sin él. El clon copió ese estado. Conviene arreglarlo acá, antes
 --      de que alguien cargue el primer camión.
 --
+--   3. `ajuste_manual` — lo escriben el alta manual de movimiento
+--      (`src/app/inventario/movimientos/nuevo/page.tsx`, donde "Ajuste manual"
+--      es una opción elegible del combo) y el importador de productos cuando
+--      ajusta stock por delta (`src/lib/imports/productos-importer.ts`). Mismo
+--      origen que el anterior: el 37 enumeró lo que creyó que usaba el código y
+--      se le escapó. Sin esto, cualquier ajuste de inventario a mano falla.
+--
 -- CÓMO LO RESUELVE
 --   Lee la lista actual del propio CHECK y le SUMA los dos valores. No escribe
 --   una lista fija a mano: eso es justamente lo que hizo el 37 de JM y por eso
@@ -45,7 +52,7 @@ DECLARE
   v_schema   text := 'amasso';
   v_tabla    text := 'movimientos_inventario';
   v_columna  text := 'origen';
-  v_agregar  text[] := ARRAY['produccion', 'carga_proveedor'];
+  v_agregar  text[] := ARRAY['produccion', 'carga_proveedor', 'ajuste_manual'];
   v_conname  text;
   v_def      text;
   v_valores  text[];
@@ -133,9 +140,10 @@ $prod$;
 -- Verificación (solo lectura)
 -- -----------------------------------------------------------------------------
 
--- 1) El CHECK ya acepta 'produccion' y 'carga_proveedor'
+-- 1) El CHECK ya acepta los tres valores
 SELECT pg_get_constraintdef(oid) ~ 'produccion'      AS acepta_produccion,
        pg_get_constraintdef(oid) ~ 'carga_proveedor' AS acepta_carga_proveedor,
+       pg_get_constraintdef(oid) ~ 'ajuste_manual'   AS acepta_ajuste_manual,
        conname, pg_get_constraintdef(oid) AS definicion
   FROM pg_constraint
  WHERE conrelid = 'amasso.movimientos_inventario'::regclass
