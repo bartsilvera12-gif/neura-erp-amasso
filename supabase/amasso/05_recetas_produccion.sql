@@ -1,28 +1,40 @@
 -- =============================================================================
--- 05 · RECETAS Y PRODUCCIÓN — habilitar el origen 'produccion' en el kardex
+-- 05 · KARDEX — habilitar los orígenes 'produccion' y 'carga_proveedor'
 -- =============================================================================
 -- Las tablas del recetario (`recetas`, `receta_items`, `producciones`,
 -- `produccion_items`) y la columna `movimientos_inventario.produccion_id` YA
 -- vienen en el clon: estaban en el schema origen. Este script no crea nada de
 -- eso. Lo único que falta es un permiso en un CHECK.
 --
--- EL PROBLEMA
---   El CHECK de `movimientos_inventario.origen` que heredamos enumera los
---   valores del ciclo de distribución —compra, recepcion, venta, anulacion,
---   transferencia, rendicion_reparto, inventario_inicial, carga_proveedor— y
---   NO incluye `produccion`. Al confirmar la primera fabricación, el kardex
---   rechaza el movimiento:
+-- EL PROBLEMA (son dos)
+--   El CHECK de `movimientos_inventario.origen` que heredamos acepta exactamente
+--   estos siete valores:
+--
+--     compra, recepcion, venta, anulacion, transferencia, rendicion_reparto,
+--     inventario_inicial
+--
+--   Y el código escribe dos que no están en esa lista. Los dos rompen igual:
 --
 --     new row for relation "movimientos_inventario" violates check
 --     constraint "movimientos_inventario_origen_check"
 --
---   Es el mismo tropiezo que ya tuvo el ERP de La Mexicana, de donde se portó
---   el recetario.
+--   1. `produccion` — lo escribe el flujo Fabricar del recetario
+--      (`src/lib/produccion/crear-produccion-pg.ts`). Es el mismo tropiezo que
+--      ya tuvo el ERP de La Mexicana, de donde se portó el recetario.
+--
+--   2. `carga_proveedor` — lo escribe la "Carga de proveedor" desde la pantalla
+--      del camión (`src/app/api/repartos/[id]/movimientos/route.ts`). Este NO
+--      es nuevo: viene roto desde el schema de origen. El
+--      `09_stock_movil.sql` de Distribuidora JM lo había agregado al CHECK, y
+--      el `37_movimientos_vocabulario.sql`, que corrió después, reescribió la
+--      lista sin él. El clon copió ese estado. Conviene arreglarlo acá, antes
+--      de que alguien cargue el primer camión.
 --
 -- CÓMO LO RESUELVE
---   Lee la lista actual del propio CHECK y le SUMA `produccion`. No escribe una
---   lista fija a mano: eso borraría algún valor que el schema ya usa. Antes de
---   reemplazar el CHECK verifica que ninguna fila existente quede afuera.
+--   Lee la lista actual del propio CHECK y le SUMA los dos valores. No escribe
+--   una lista fija a mano: eso es justamente lo que hizo el 37 de JM y por eso
+--   se perdió `carga_proveedor`. Antes de reemplazar el CHECK verifica que
+--   ninguna fila existente quede afuera.
 --
 -- Alcance: SOLO el schema `amasso`. No toca `public` ni ningún otro.
 -- Idempotente: volver a correrlo deja el mismo resultado y lo dice por NOTICE.
@@ -33,7 +45,7 @@ DECLARE
   v_schema   text := 'amasso';
   v_tabla    text := 'movimientos_inventario';
   v_columna  text := 'origen';
-  v_agregar  text[] := ARRAY['produccion'];
+  v_agregar  text[] := ARRAY['produccion', 'carga_proveedor'];
   v_conname  text;
   v_def      text;
   v_valores  text[];
@@ -85,7 +97,7 @@ BEGIN
   END LOOP;
 
   IF cardinality(v_faltan) = 0 THEN
-    RAISE NOTICE '%.%: ya acepta produccion, no hay nada que hacer.', v_tabla, v_columna;
+    RAISE NOTICE '%.%: ya acepta todo lo que hace falta, no hay nada que hacer.', v_tabla, v_columna;
     RETURN;
   END IF;
 
@@ -99,6 +111,11 @@ BEGIN
       v_invalidos, v_tabla, v_columna;
   END IF;
 
+  -- El CHECK heredado viene como `origen IS NULL OR origen = ANY (...)` y marcado
+  -- NOT VALID. El que se escribe acá queda como `origen = ANY (...)` y validado.
+  -- Es equivalente: un CHECK solo rechaza cuando la expresión da FALSE, y con
+  -- origen NULL `= ANY` da NULL, así que los NULL siguen pasando. Y validarlo no
+  -- cuesta nada porque recién se comprobó que ninguna fila queda afuera.
   EXECUTE format('ALTER TABLE %I.%I DROP CONSTRAINT %I', v_schema, v_tabla, v_conname);
   EXECUTE format(
     'ALTER TABLE %I.%I ADD CONSTRAINT %I CHECK (%I = ANY(%L))',
@@ -116,8 +133,10 @@ $prod$;
 -- Verificación (solo lectura)
 -- -----------------------------------------------------------------------------
 
--- 1) El CHECK ya acepta 'produccion'
-SELECT conname, pg_get_constraintdef(oid) AS definicion
+-- 1) El CHECK ya acepta 'produccion' y 'carga_proveedor'
+SELECT pg_get_constraintdef(oid) ~ 'produccion'      AS acepta_produccion,
+       pg_get_constraintdef(oid) ~ 'carga_proveedor' AS acepta_carga_proveedor,
+       conname, pg_get_constraintdef(oid) AS definicion
   FROM pg_constraint
  WHERE conrelid = 'amasso.movimientos_inventario'::regclass
    AND contype = 'c'

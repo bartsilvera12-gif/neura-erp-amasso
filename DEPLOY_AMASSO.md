@@ -28,7 +28,7 @@ cada uno.
 | 02 | `02_catalogo_modulos.sql` | Copia el catálogo `modulos` (lista de módulos del producto). |
 | 03 | `03_empresa_admin_modulos.sql` | Empresa + usuario admin + los 19 módulos habilitados. |
 | 04 | `04_verificacion.sql` | Solo lectura. Compara origen vs destino y busca fugas. |
-| 05 | `05_recetas_produccion.sql` | Habilita `produccion` en el CHECK de `movimientos_inventario.origen`. Sin esto la primera fabricación falla. |
+| 05 | `05_recetas_produccion.sql` | Habilita `produccion` y `carga_proveedor` en el CHECK de `movimientos_inventario.origen`. Sin esto fallan la fabricación y la carga de camión. |
 
 ### Antes de ejecutar
 
@@ -185,6 +185,15 @@ siendo el que manda.
 admin y supervisor. **Fabricar lo puede hacer cualquier rol**: es una operación
 de planta, no de configuración. El guard real está en las rutas
 (`src/lib/recetas/require-edicion-recetas.ts`), no en los botones.
+
+**Un bug heredado que arregla el mismo script.** El CHECK de
+`movimientos_inventario.origen` tampoco aceptaba `carga_proveedor`, que es lo que
+escribe la "Carga de proveedor" de la pantalla del camión
+(`src/app/api/repartos/[id]/movimientos/route.ts`). No es nuevo: el
+`09_stock_movil.sql` de Distribuidora JM lo había agregado y el
+`37_movimientos_vocabulario.sql`, que corrió después, reescribió la lista a mano
+sin él. El clon copió ese estado, así que **Distribuidora JM tiene la misma
+operación rota en producción**. El script 05 agrega los dos valores.
 
 **Pendiente de decidir.** El pan terminado entra al depósito. Para subirlo a un
 camión hoy existen las dos operaciones de repartos: `carga` (que trata la
