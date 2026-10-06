@@ -122,17 +122,22 @@ export async function POST(request: NextRequest, { params }: RouteCtx) {
       }
 
       // ── Stock: solo lo que esta compra movió ────────────────────────────────
+      // El SKU sale de `productos`: `compra_items` no lo guarda y
+      // `movimientos_inventario.producto_sku` es NOT NULL.
       const itemsQ = await client.query<{
         producto_id: string | null;
         producto_nombre: string | null;
+        sku: string | null;
         cantidad: string | number;
         costo_unitario: string | number | null;
         afecta_inventario: boolean | null;
         recepcion_item_id: string | null;
       }>(
-        `SELECT producto_id, producto_nombre, cantidad, costo_unitario,
-                afecta_inventario, recepcion_item_id
-           FROM ${tCI} WHERE compra_id = $1::uuid AND empresa_id = $2::uuid`,
+        `SELECT ci.producto_id, ci.producto_nombre, p.sku, ci.cantidad, ci.costo_unitario,
+                ci.afecta_inventario, ci.recepcion_item_id
+           FROM ${tCI} ci
+           LEFT JOIN ${tP} p ON p.id = ci.producto_id
+          WHERE ci.compra_id = $1::uuid AND ci.empresa_id = $2::uuid`,
         [id, empresaId]
       );
 
@@ -186,18 +191,19 @@ export async function POST(request: NextRequest, { params }: RouteCtx) {
           if (hayMovs) {
             await client.query(
               `INSERT INTO ${tM} (
-                 empresa_id, producto_id, producto_nombre, tipo, cantidad,
+                 empresa_id, producto_id, producto_nombre, producto_sku, tipo, cantidad,
                  costo_unitario, origen, referencia, fecha, created_by, usuario_nombre
                  ${movTieneUbicacion ? ", ubicacion_id" : ""}
                ) VALUES (
-                 $1::uuid, $2::uuid, $3, 'SALIDA', $4::numeric,
-                 $5::numeric, 'anulacion', $6, now(), $7::uuid, $8
-                 ${movTieneUbicacion ? ", $9::uuid" : ""}
+                 $1::uuid, $2::uuid, $3, $4, 'SALIDA', $5::numeric,
+                 $6::numeric, 'anulacion', $7, now(), $8::uuid, $9
+                 ${movTieneUbicacion ? ", $10::uuid" : ""}
                )`,
               [
                 empresaId,
                 it.producto_id,
                 it.producto_nombre ?? "",
+                it.sku ?? "",
                 cantidad,
                 Number(it.costo_unitario) || 0,
                 `Anulación compra ${compra.numero_comprobante ?? ""}`.trim(),
@@ -302,8 +308,18 @@ export async function POST(request: NextRequest, { params }: RouteCtx) {
       client.release();
     }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("[/api/compras/[id]/anular]", { id, msg });
-    return NextResponse.json(errorResponse("No se pudo anular la compra."), { status: 500 });
+    // El motivo va en la respuesta y no solo al log: un "no se pudo" a secas
+    // obliga a entrar al servidor para saber qué pasó.
+    const o = (err ?? {}) as { message?: unknown; detail?: unknown; code?: unknown };
+    const partes = [
+      typeof o.message === "string" ? o.message : "",
+      typeof o.detail === "string" ? o.detail : "",
+    ].filter(Boolean);
+    const msg = partes.join(" · ") || String(err ?? "");
+    console.error("[/api/compras/[id]/anular]", { id, msg, code: o.code });
+    return NextResponse.json(
+      errorResponse(msg ? `No se pudo anular la compra: ${msg}` : "No se pudo anular la compra."),
+      { status: 500 }
+    );
   }
 }

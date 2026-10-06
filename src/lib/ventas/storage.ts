@@ -49,6 +49,7 @@ export async function saveVenta(
         monto_iva: datos.monto_iva,
         total: datos.total,
         tipo_venta: datos.tipo_venta,
+        pagos: datos.pagos,
         plazo_dias: datos.plazo_dias,
         metodo_pago: datos.metodo_pago ?? null,
         caja_id: datos.caja_id ?? null,

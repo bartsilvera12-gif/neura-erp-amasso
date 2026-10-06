@@ -30,6 +30,12 @@ export interface CreateVentaPgParams {
   cajaId: string | null;
   /** Quién vendió (`usuarios.id` del schema). Se guarda en `ventas.created_by`. */
   usuarioId?: string | null;
+  /**
+   * Reparto del cobro cuando `metodoPago` es `mixto`: una entrada por medio.
+   * Se guarda en `ventas_pagos_detalle` y genera un movimiento de caja por
+   * cada una, para que el arqueo pueda desglosarlo.
+   */
+  pagos?: { metodo_pago: string; monto: number }[] | null;
   /** Reparto del que sale la mercadería. */
   repartoId: string | null;
   /** Lista de precio: minorista (precio de venta) o mayorista (−10%). */
@@ -357,21 +363,56 @@ export async function createVentaTransaccionalPg(
       (await tablaExiste(client, params.schema, "caja_movimientos"))
     ) {
       const movT = quoteSchemaTable(params.schema, "caja_movimientos");
-      await client.query(
-        `
-        INSERT INTO ${movT} (empresa_id, caja_id, tipo, concepto, monto, medio_pago, venta_id)
-        VALUES ($1::uuid, $2::uuid, 'ingreso', $3, $4, $5, $6::uuid)
-        `,
-        [
-          params.empresaId,
-          params.cajaId,
-          `Venta ${numeroControl}`,
-          calc.total,
-          // `caja_movimientos.medio_pago` no tiene `mixto`: su equivalente es `otro`.
-          params.metodoPago === "mixto" ? "otro" : params.metodoPago,
-          ventaId,
-        ]
-      );
+      const mixto = params.metodoPago === "mixto" ? (params.pagos ?? []) : [];
+
+      if (mixto.length > 0) {
+        // Un movimiento POR MEDIO. El arqueo agrupa por `medio_pago`, así que
+        // una sola fila con `otro` por el total dejaría los recuadros de
+        // Efectivo, Transferencia y Tarjeta en cero y la caja sin explicación.
+        for (const p of mixto) {
+          await client.query(
+            `
+            INSERT INTO ${movT} (empresa_id, caja_id, tipo, concepto, monto, medio_pago, venta_id)
+            VALUES ($1::uuid, $2::uuid, 'ingreso', $3, $4, $5, $6::uuid)
+            `,
+            [
+              params.empresaId,
+              params.cajaId,
+              `Venta ${numeroControl} (${p.metodo_pago})`,
+              p.monto,
+              p.metodo_pago,
+              ventaId,
+            ]
+          );
+        }
+      } else {
+        await client.query(
+          `
+          INSERT INTO ${movT} (empresa_id, caja_id, tipo, concepto, monto, medio_pago, venta_id)
+          VALUES ($1::uuid, $2::uuid, 'ingreso', $3, $4, $5, $6::uuid)
+          `,
+          [
+            params.empresaId,
+            params.cajaId,
+            `Venta ${numeroControl}`,
+            calc.total,
+            params.metodoPago,
+            ventaId,
+          ]
+        );
+      }
+
+      // Detalle del cobro mixto, para poder reconstruirlo después.
+      if (mixto.length > 0 && (await tablaExiste(client, params.schema, "ventas_pagos_detalle"))) {
+        const detT = quoteSchemaTable(params.schema, "ventas_pagos_detalle");
+        for (const p of mixto) {
+          await client.query(
+            `INSERT INTO ${detT} (empresa_id, venta_id, metodo_pago, monto, fecha_pago)
+             VALUES ($1::uuid, $2::uuid, $3, $4::numeric, now())`,
+            [params.empresaId, ventaId, p.metodo_pago, p.monto]
+          );
+        }
+      }
     }
 
     for (const line of items) {

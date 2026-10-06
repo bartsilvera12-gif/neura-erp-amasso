@@ -22,16 +22,15 @@ export const METODOS_PAGO: { value: MetodoPagoVenta; label: string }[] = [
  * Con qué se puede cobrar hoy: efectivo, tarjeta, transferencia o cheque. Es la
  * lista que ofrecen la caja y el cobro de ventas a crédito.
  *
- * `mixto` queda AFUERA a propósito: no está implementado el reparto del monto
- * entre dos medios. Hoy una venta marcada mixta entraría entera a la caja como
- * `otro`, sin registrar cuánto fue con cada uno, y el arqueo quedaría sin poder
- * explicar la diferencia. Para ofrecerlo hace falta la pantalla que divide el
- * total y escribir una fila por medio en `ventas_pagos_detalle`.
- *
- * `METODOS_PAGO` queda completa porque hay ventas con mixto que tienen que
- * seguir mostrándose con su nombre; esta es la que se OFRECE.
+ * `mixto` abre el reparto del monto: se tipea cuánto va con cada medio, el
+ * total tiene que cuadrar, y el servidor escribe una fila por medio en
+ * `ventas_pagos_detalle` y un movimiento de caja por cada una — si no, el
+ * arqueo no podría desglosarlo.
  */
-export const METODOS_COBRO: { value: MetodoPagoVenta; label: string }[] = METODOS_PAGO.filter(
+export const METODOS_COBRO: { value: MetodoPagoVenta; label: string }[] = METODOS_PAGO;
+
+/** Los medios que pueden formar parte de un cobro mixto (todos menos `mixto`). */
+export const METODOS_MIXTO: { value: MetodoPagoVenta; label: string }[] = METODOS_PAGO.filter(
   (m) => m.value !== "mixto"
 );
 
@@ -100,6 +99,11 @@ export interface Venta {
   reparto_etiqueta?: string | null;
   /** Quién hizo la venta. Se resuelve en la lectura desde `created_by`. */
   vendedor_nombre?: string | null;
+  /**
+   * Reparto del cobro cuando `metodo_pago` es `mixto`: una entrada por medio.
+   * Solo se manda al crear; se guarda en `ventas_pagos_detalle`.
+   */
+  pagos?: { metodo_pago: string; monto: number }[];
 
   fecha: string;             // ISO string, generado automáticamente
 }

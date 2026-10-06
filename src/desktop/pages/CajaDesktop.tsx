@@ -38,7 +38,7 @@ import MiniaturaProducto from "@/components/inventario/MiniaturaProducto";
 import { esPesable, formatCantidad } from "@/lib/inventario/unidades";
 import { formatGs, useCajaVenta, type CajaVenta } from "@/shared/caja/useCajaVenta";
 import SelectorReparto from "@/shared/caja/SelectorReparto";
-import { METODOS_PAGO, METODOS_COBRO, type MetodoPagoVenta, type TipoIvaVenta } from "@/lib/ventas/types";
+import { METODOS_PAGO, METODOS_COBRO, METODOS_MIXTO, type MetodoPagoVenta, type TipoIvaVenta } from "@/lib/ventas/types";
 
 /**
  * Caja desktop. Misma lógica que la mobile (`useCajaVenta`), otro layout.
@@ -340,6 +340,46 @@ function PanelCobro({ caja }: { caja: CajaVenta }) {
                   );
                 })}
               </div>
+
+              {/* Reparto del cobro mixto. Sin esto la venta entraría entera con
+                  un medio solo y el arqueo no podría desglosarla. */}
+              {caja.metodoPago === "mixto" ? (
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <p className="mb-2 text-[11px] font-semibold text-slate-500">
+                    ¿Cuánto con cada uno?
+                  </p>
+                  <div className="space-y-1.5">
+                    {METODOS_MIXTO.map(({ value: m, label }) => (
+                      <div key={m} className="flex items-center gap-2">
+                        <span className="w-28 shrink-0 text-xs text-slate-600">{label}</span>
+                        <input
+                          inputMode="decimal"
+                          value={caja.pagosMixtos[m] ?? ""}
+                          onChange={(e) => caja.setMontoMixto(m, e.target.value)}
+                          placeholder="0"
+                          className="w-full rounded border border-slate-300 px-2 py-1 text-right text-sm tabular-nums"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  {(() => {
+                    const suma = METODOS_MIXTO.reduce(
+                      (a, { value: m }) => a + (Number(String(caja.pagosMixtos[m] ?? "").replace(",", ".")) || 0),
+                      0
+                    );
+                    const falta = caja.totales.total - suma;
+                    return (
+                      <p className={`mt-2 text-[11px] font-semibold ${Math.abs(falta) <= 1 ? "text-emerald-700" : "text-amber-700"}`}>
+                        {Math.abs(falta) <= 1
+                          ? "El reparto cuadra con el total."
+                          : falta > 0
+                            ? `Falta repartir Gs. ${Math.round(falta).toLocaleString("es-PY")}`
+                            : `Te pasaste Gs. ${Math.round(-falta).toLocaleString("es-PY")}`}
+                      </p>
+                    );
+                  })()}
+                </div>
+              ) : null}
             </>
           ) : null}
 

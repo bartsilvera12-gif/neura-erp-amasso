@@ -42,7 +42,7 @@ import { useEmisor } from "@/shared/hooks/useEmisor";
 import { formatCantidad } from "@/lib/inventario/unidades";
 import { formatGs, PASOS_CAJA, useCajaVenta, type CajaVenta, type ComprobanteCaja } from "@/shared/caja/useCajaVenta";
 import SelectorReparto from "@/shared/caja/SelectorReparto";
-import { METODOS_PAGO, METODOS_COBRO, type MetodoPagoVenta, type TipoIvaVenta } from "@/lib/ventas/types";
+import { METODOS_PAGO, METODOS_COBRO, METODOS_MIXTO, type MetodoPagoVenta, type TipoIvaVenta } from "@/lib/ventas/types";
 
 /**
  * Caja mobile: asistente de cobro a pantalla completa.
@@ -675,6 +675,44 @@ function PasoPago({ caja }: { caja: CajaVenta }) {
           );
         })}
       </ul>
+
+      {/* Reparto del cobro mixto: cuánto con cada medio. El total tiene que
+          cuadrar o la caja cierra con una diferencia sin explicación. */}
+      {!caja.aCredito && caja.metodoPago === "mixto" ? (
+        <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
+          <p className="mb-2 text-xs font-semibold text-slate-600">¿Cuánto con cada uno?</p>
+          <div className="space-y-2">
+            {METODOS_MIXTO.map(({ value: m, label }) => (
+              <div key={m} className="flex items-center gap-2">
+                <span className="w-24 shrink-0 text-xs text-slate-600">{label}</span>
+                <input
+                  inputMode="decimal"
+                  value={caja.pagosMixtos[m] ?? ""}
+                  onChange={(e) => caja.setMontoMixto(m, e.target.value)}
+                  placeholder="0"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-right text-sm tabular-nums outline-none focus:ring-2 focus:ring-[#4FAEB2]"
+                />
+              </div>
+            ))}
+          </div>
+          {(() => {
+            const suma = METODOS_MIXTO.reduce(
+              (a, { value: m }) => a + (Number(String(caja.pagosMixtos[m] ?? "").replace(",", ".")) || 0),
+              0
+            );
+            const falta = caja.totales.total - suma;
+            return (
+              <p className={`mt-2 text-xs font-semibold ${Math.abs(falta) <= 1 ? "text-emerald-700" : "text-amber-700"}`}>
+                {Math.abs(falta) <= 1
+                  ? "El reparto cuadra con el total."
+                  : falta > 0
+                    ? `Falta repartir Gs. ${Math.round(falta).toLocaleString("es-PY")}`
+                    : `Te pasaste Gs. ${Math.round(-falta).toLocaleString("es-PY")}`}
+              </p>
+            );
+          })()}
+        </div>
+      ) : null}
 
       {caja.aCredito ? (
         <label className="block rounded-xl border border-slate-200 bg-white p-4">

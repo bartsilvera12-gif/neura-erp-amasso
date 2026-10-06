@@ -96,6 +96,16 @@ export function useCajaVenta() {
   const [lista, setLista] = useState<ListaPrecio>("minorista");
   const [tipoCambio, setTipoCambio] = useState("");
   const [metodoPago, setMetodoPago] = useState<MetodoPagoVenta | null>(null);
+  /**
+   * Reparto del total cuando se cobra mixto: cuánto con cada medio.
+   * Se guarda como texto, igual que el resto de los montos del formulario, y se
+   * convierte recién al confirmar.
+   */
+  const [pagosMixtos, setPagosMixtos] = useState<Record<string, string>>({});
+
+  function setMontoMixto(metodo: string, monto: string) {
+    setPagosMixtos((prev) => ({ ...prev, [metodo]: monto }));
+  }
   // El crédito es una condición de la venta (`tipo_venta`), no un medio de
   // cobro: a crédito no entra plata hoy y no hay con qué cobrarla.
   const [aCredito, setACredito] = useState(false);
@@ -395,6 +405,7 @@ export function useCajaVenta() {
     setLista("minorista");
     setTipoCambio("");
     setMetodoPago(null);
+    setPagosMixtos({});
     setACredito(false);
     setPlazoDias("");
     setError(null);
@@ -409,6 +420,26 @@ export function useCajaVenta() {
     if (!aCredito && metodoPago === null) {
       setError("Elegí con qué se cobra.");
       return;
+    }
+    // Mixto: el reparto tiene que sumar exactamente el total. Si no cuadra, la
+    // caja terminaría el día con una diferencia que nadie puede explicar.
+    let detallePagos: { metodo_pago: string; monto: number }[] | undefined;
+    if (!aCredito && metodoPago === "mixto") {
+      detallePagos = Object.entries(pagosMixtos)
+        .map(([m, v]) => ({ metodo_pago: m, monto: Number(String(v).replace(",", ".")) || 0 }))
+        .filter((p) => p.monto > 0);
+      if (detallePagos.length < 2) {
+        setError("Un cobro mixto necesita al menos dos medios con monto.");
+        return;
+      }
+      const suma = detallePagos.reduce((a, p) => a + p.monto, 0);
+      // Tolerancia de un guaraní: los montos se tipean redondeados.
+      if (Math.abs(suma - totales.total) > 1) {
+        setError(
+          `El reparto suma ${Math.round(suma).toLocaleString("es-PY")} y el total es ${Math.round(totales.total).toLocaleString("es-PY")}.`
+        );
+        return;
+      }
     }
     if (aCredito && !creditoDisponible) {
       setError("El crédito requiere un cliente identificado.");
@@ -443,6 +474,7 @@ export function useCajaVenta() {
       reparto_id: repartoId,
       cliente_id: cliente?.id ?? null,
       lista_precio: lista,
+      pagos: detallePagos,
     });
 
     setGuardando(false);
@@ -473,6 +505,7 @@ export function useCajaVenta() {
     guardando,
     carrito.length,
     metodoPago,
+    pagosMixtos,
     aCredito,
     creditoDisponible,
     caja,
@@ -540,6 +573,8 @@ export function useCajaVenta() {
     setLista,
     setTipoCambio,
     setMetodoPago,
+    pagosMixtos,
+    setMontoMixto,
     setACredito,
     setPlazoDias,
     setRepartoId,

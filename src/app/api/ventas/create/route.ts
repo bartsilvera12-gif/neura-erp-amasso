@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { METODOS_COBRO } from "@/lib/ventas/types";
+import { METODOS_COBRO, METODOS_MIXTO } from "@/lib/ventas/types";
 import { esListaPrecio, type ListaPrecio } from "@/lib/ventas/listas-precio";
 import { getUserAndEmpresa } from "@/lib/middleware/auth";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
@@ -148,9 +148,39 @@ export async function POST(request: NextRequest) {
       !(METODOS_COBRO.map((m) => m.value) as string[]).includes(metodoPago)
     ) {
       return NextResponse.json(
-        errorResponse("Se cobra en efectivo, transferencia o cheque. Recargá la caja."),
+        errorResponse("Ese medio de cobro no existe. Recargá la caja."),
         { status: 400 }
       );
+    }
+
+    // Cobro mixto: el reparto se valida acá también, no solo en la pantalla.
+    // Una suma que no cuadra deja la caja con una diferencia sin explicación.
+    let pagos: { metodo_pago: string; monto: number }[] | null = null;
+    if (tipoVenta === "CONTADO" && metodoPago === "mixto") {
+      const crudos: unknown[] = Array.isArray(o.pagos) ? (o.pagos as unknown[]) : [];
+      const limpios = crudos
+        .map((p: unknown) => {
+          const q = (p ?? {}) as { metodo_pago?: unknown; monto?: unknown };
+          return { metodo_pago: String(q.metodo_pago ?? ""), monto: Number(q.monto) || 0 };
+        })
+        .filter((p) => p.monto > 0 && METODOS_MIXTO.some((m) => m.value === p.metodo_pago));
+      pagos = limpios;
+      if (limpios.length < 2) {
+        return NextResponse.json(
+          errorResponse("Un cobro mixto necesita al menos dos medios con monto."),
+          { status: 400 }
+        );
+      }
+      const suma = limpios.reduce((a, p) => a + p.monto, 0);
+      const totalPedido = Number(o.total) || 0;
+      if (Math.abs(suma - totalPedido) > 1) {
+        return NextResponse.json(
+          errorResponse(
+            `El reparto del cobro suma ${Math.round(suma)} y el total es ${Math.round(totalPedido)}.`
+          ),
+          { status: 400 }
+        );
+      }
     }
 
     const cajaRaw = o.caja_id;
@@ -236,6 +266,7 @@ export async function POST(request: NextRequest) {
       schema,
       empresaId: auth.empresa_id,
       usuarioId: yo?.id ?? null,
+      pagos,
       clienteId,
       observaciones,
       moneda,
