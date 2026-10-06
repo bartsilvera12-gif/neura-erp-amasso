@@ -218,20 +218,24 @@ export async function POST(request: NextRequest) {
     // quedó arriba del cierre anterior. Sin esto la venta queda sin camión, la
     // mercadería sale del stock general y el cierre del día dice "sin reparto"
     // con el camión en la calle.
+    // Quién vende: hace falta siempre, para atribuirle la venta, y además es
+    // quien decide de qué reparto sale.
+    const yo = await usuarioDelSchema({
+      schema,
+      empresaId: auth.empresa_id,
+      email: auth.user.email,
+      catalogId: auth.usuarioCatalogId ?? null,
+    });
+
     let repartoFinal = repartoId;
     if (repartoFinal === null) {
-      const yo = await usuarioDelSchema({
-        schema,
-        empresaId: auth.empresa_id,
-        email: auth.user.email,
-        catalogId: auth.usuarioCatalogId ?? null,
-      });
       repartoFinal = await asegurarRepartoAbierto(schema, auth.empresa_id, yo?.id ?? null);
     }
 
     const { ventaId, numeroControl, fechaIso } = await createVentaTransaccionalPg({
       schema,
       empresaId: auth.empresa_id,
+      usuarioId: yo?.id ?? null,
       clienteId,
       observaciones,
       moneda,

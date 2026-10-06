@@ -28,6 +28,8 @@ export interface CreateVentaPgParams {
   metodoPago: "efectivo" | "tarjeta" | "transferencia" | "cheque" | "mixto" | null;
   /** Caja en la que se cobra. Obligatoria salvo venta a crédito. */
   cajaId: string | null;
+  /** Quién vendió (`usuarios.id` del schema). Se guarda en `ventas.created_by`. */
+  usuarioId?: string | null;
   /** Reparto del que sale la mercadería. */
   repartoId: string | null;
   /** Lista de precio: minorista (precio de venta) o mayorista (−10%). */
@@ -208,7 +210,7 @@ export async function createVentaTransaccionalPg(
       SELECT column_name AS columna
         FROM information_schema.columns
        WHERE table_schema = $1 AND table_name = 'ventas'
-         AND column_name IN ('metodo_pago', 'caja_id', 'reparto_id', 'lista_precio')
+         AND column_name IN ('metodo_pago', 'caja_id', 'reparto_id', 'lista_precio', 'created_by')
       `,
       [params.schema]
     );
@@ -232,6 +234,12 @@ export async function createVentaTransaccionalPg(
     if (columnas.has("lista_precio")) {
       extraCols.push("lista_precio");
       extraVals.push(params.listaPrecio);
+    }
+    // Quién vendió. Sin esto la venta no decía de quién era: el listado de Caja
+    // mostraba todas iguales y no se podía atribuir nada a un vendedor.
+    if (columnas.has("created_by")) {
+      extraCols.push("created_by");
+      extraVals.push(params.usuarioId ?? null);
     }
     // Los placeholders siguen después de los 12 fijos del INSERT.
     const extraPlaceholders = extraCols.map((_, i) => `$${13 + i}`);

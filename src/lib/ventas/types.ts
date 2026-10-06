@@ -92,6 +92,8 @@ export interface Venta {
   cliente_direccion?: string | null;
   /** "Camion 1 · CAMION PRUEBA" si salió de un reparto. */
   reparto_etiqueta?: string | null;
+  /** Quién hizo la venta. Se resuelve en la lectura desde `created_by`. */
+  vendedor_nombre?: string | null;
 
   fecha: string;             // ISO string, generado automáticamente
 }

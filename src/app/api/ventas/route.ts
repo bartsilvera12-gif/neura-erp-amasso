@@ -83,11 +83,11 @@ export async function GET(request: NextRequest) {
     const colsQ = await queryWithRetry<{ c: string }>(pool,
       `SELECT column_name AS c FROM information_schema.columns
         WHERE table_schema = $1 AND table_name = 'ventas'
-          AND column_name IN ('metodo_pago', 'cliente_id', 'reparto_id', 'lista_precio')`,
+          AND column_name IN ('metodo_pago', 'cliente_id', 'reparto_id', 'lista_precio', 'created_by')`,
       [schema]
     );
     const opc = new Set(colsQ.rows.map((r) => r.c));
-    const extra = ["metodo_pago", "cliente_id", "reparto_id", "lista_precio"]
+    const extra = ["metodo_pago", "cliente_id", "reparto_id", "lista_precio", "created_by"]
       .map((c) => (opc.has(c) ? c : `NULL::text AS ${c}`))
       .join(", ");
 
@@ -178,6 +178,40 @@ export async function GET(request: NextRequest) {
         console.warn("[/api/ventas GET] repartos:", e instanceof Error ? e.message : e);
       }
     }
+    // Nombre de quien vendió. Se resuelve en la lectura y no se guarda en la
+    // venta: si después renombran al usuario, el listado sigue diciendo bien
+    // quién fue.
+    const nombreVendedor = new Map<string, string>();
+    const idsVendedor = [
+      ...new Set(
+        ventasQ.rows
+          .map((r) => (r as unknown as { created_by?: string | null }).created_by)
+          .filter((x): x is string => typeof x === "string" && x.length > 0)
+      ),
+    ];
+    if (idsVendedor.length > 0) {
+      try {
+        const uc = await queryWithRetry<{ c: string }>(pool,
+          `SELECT column_name AS c FROM information_schema.columns
+            WHERE table_schema = $1 AND table_name = 'usuarios' AND column_name IN ('nombre', 'email')`,
+          [schema]
+        );
+        const uHay = new Set(uc.rows.map((r) => r.c));
+        const expr = uHay.has("nombre")
+          ? uHay.has("email") ? "COALESCE(NULLIF(btrim(u.nombre), ''), u.email)" : "u.nombre"
+          : uHay.has("email") ? "u.email" : "NULL::text";
+        const q = await queryWithRetry<{ id: string; nombre: string | null }>(pool,
+          `SELECT u.id, ${expr} AS nombre
+             FROM ${quoteSchemaTable(schema, "usuarios")} u
+            WHERE u.id = ANY($1::uuid[])`,
+          [idsVendedor]
+        );
+        for (const r of q.rows) if (r.nombre) nombreVendedor.set(r.id, r.nombre);
+      } catch (e) {
+        console.warn("[/api/ventas GET] vendedores:", e instanceof Error ? e.message : e);
+      }
+    }
+
     const itemsQ = await queryWithRetry<VentaItemRow>(pool,
       `SELECT venta_id, producto_id, producto_nombre, sku, cantidad,
               precio_venta_original, precio_venta, tipo_iva, subtotal, monto_iva, total_linea
@@ -228,6 +262,9 @@ export async function GET(request: NextRequest) {
         cliente_direccion: r.cliente_id ? datosCliente.get(r.cliente_id)?.direccion ?? null : null,
         reparto_id: r.reparto_id ?? null,
         reparto_etiqueta: r.reparto_id ? etiquetaReparto.get(r.reparto_id) ?? null : null,
+        vendedor_nombre: (r as unknown as { created_by?: string | null }).created_by
+          ? nombreVendedor.get((r as unknown as { created_by: string }).created_by) ?? null
+          : null,
         lista_precio: r.lista_precio === "mayorista" ? "mayorista" : "minorista",
       };
     });
