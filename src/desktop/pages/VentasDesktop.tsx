@@ -7,6 +7,7 @@ import TarjetaCajaAbierta from "@/shared/caja/TarjetaCajaAbierta";
 import { useEffect, useState } from "react";
 import { getVentas } from "@/lib/ventas/storage";
 import type { Venta, TipoVenta, TipoIvaVenta } from "@/lib/ventas/types";
+import { Truck, Store } from "lucide-react";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -241,13 +242,14 @@ export default function VentasPage() {
                 <th className="py-3 pr-4 font-medium">IVA</th>
                 <th className="py-3 pr-4 font-medium text-right">Total</th>
                 <th className="py-3 pr-4 font-medium">Tipo</th>
+                <th className="py-3 pr-4 font-medium">Origen</th>
                 <th className="py-3 font-medium">Fecha</th>
               </tr>
             </thead>
             <tbody>
               {filtradas.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-gray-400">
+                  <td colSpan={9} className="py-12 text-center text-gray-400">
                     {todas.length === 0
                       ? "No hay ventas registradas"
                       : "Ninguna venta coincide con los filtros"}
@@ -291,6 +293,25 @@ export default function VentasPage() {
                             ? "Contado"
                             : `Crédito ${v.plazo_dias ?? ""}d`}
                         </span>
+                      </td>
+                      {/* De dónde salió la venta. `reparto_etiqueta` viene armada
+                          por la API como "alias del camión · repartidor"; sin
+                          reparto, la venta se hizo en el mostrador. */}
+                      <td className="py-4 pr-4 align-middle">
+                        {v.reparto_etiqueta ? (
+                          <span
+                            title={v.reparto_etiqueta}
+                            className="inline-flex max-w-[12rem] items-center gap-1 truncate rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700"
+                          >
+                            <Truck className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{v.reparto_etiqueta}</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">
+                            <Store className="h-3 w-3 shrink-0" />
+                            Mostrador
+                          </span>
+                        )}
                       </td>
                       <td className="py-4 text-gray-500 text-xs tabular-nums align-middle">
                         {formatFecha(v.fecha)}
