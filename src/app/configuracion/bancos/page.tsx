@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { GlobalConfigSubpageShell } from "@/components/config/GlobalConfigSubpageShell";
 import {
@@ -102,6 +102,14 @@ export default function ConfiguracionBancosPage() {
   const [eCodigo, setECodigo] = useState("");
   const [eNombre, setENombre] = useState("");
   const [eTipo, setETipo] = useState("banco");
+  // Datos de la cuenta propia. Antes la edición sólo tocaba código, nombre y
+  // tipo: el número de cuenta y el titular se cargaban al crear y después no
+  // había forma de corregirlos (la API sí los aceptaba).
+  const [ePropia, setEPropia] = useState(false);
+  const [eNumero, setENumero] = useState("");
+  const [eTitular, setETitular] = useState("");
+  const [eDoc, setEDoc] = useState("");
+  const [eAlias, setEAlias] = useState<string | null>(null);
 
   // Confirmación de borrado
   const [porBorrar, setPorBorrar] = useState<Banco | null>(null);
@@ -197,6 +205,11 @@ export default function ConfiguracionBancosPage() {
     setECodigo(b.codigo ?? "");
     setENombre(b.nombre);
     setETipo(b.tipo);
+    setEPropia(b.es_cuenta_propia);
+    setENumero(b.numero_cuenta ?? "");
+    setETitular(b.titular_cuenta ?? "");
+    setEDoc(b.documento_titular ?? "");
+    setEAlias(b.alias_cuenta);
   }
 
   const colspan = canEdit ? 5 : 4;
@@ -319,7 +332,8 @@ export default function ConfiguracionBancosPage() {
                 ) : (
                   bancos.map((b) =>
                     editId === b.id ? (
-                      <tr key={b.id} className="bg-[#4FAEB2]/5">
+                      <Fragment key={b.id}>
+                      <tr className="bg-[#4FAEB2]/5">
                         <td className="px-3 py-2">
                           <input
                             className={`${F_INPUT} uppercase`}
@@ -350,7 +364,21 @@ export default function ConfiguracionBancosPage() {
                             <button
                               type="button"
                               className={BTN_PRIMARY}
-                              onClick={() => void patch(b.id, { nombre: eNombre, codigo: eCodigo, tipo: eTipo })}
+                              onClick={() =>
+                                void patch(b.id, {
+                                  nombre: eNombre,
+                                  codigo: eCodigo,
+                                  tipo: eTipo,
+                                  // La API reescribe los cuatro campos de cuenta juntos cuando
+                                  // viene es_cuenta_propia; el alias no se edita acá y se reenvía
+                                  // tal cual para no borrarlo.
+                                  es_cuenta_propia: ePropia,
+                                  numero_cuenta: eNumero,
+                                  titular_cuenta: eTitular,
+                                  documento_titular: eDoc,
+                                  alias_cuenta: eAlias ?? "",
+                                })
+                              }
                               disabled={!eNombre.trim()}
                             >
                               Guardar
@@ -359,6 +387,38 @@ export default function ConfiguracionBancosPage() {
                           </div>
                         </td>
                       </tr>
+                      <tr className="bg-[#4FAEB2]/5">
+                        <td colSpan={colspan} className="px-3 pb-4 pt-1">
+                          <label className="flex items-start gap-2.5">
+                            <input
+                              type="checkbox"
+                              className="mt-0.5 h-4 w-4 accent-[#3F8E91]"
+                              checked={ePropia}
+                              onChange={(e) => setEPropia(e.target.checked)}
+                            />
+                            <span className="text-sm text-slate-700">
+                              Es una cuenta <strong>de la empresa</strong>
+                            </span>
+                          </label>
+                          {ePropia ? (
+                            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                              <div>
+                                <label className={F_LABEL} htmlFor={`e-numero-${b.id}`}>N° de cuenta</label>
+                                <input id={`e-numero-${b.id}`} className={F_INPUT} value={eNumero} onChange={(e) => setENumero(e.target.value)} placeholder="Ej: 80012345" />
+                              </div>
+                              <div>
+                                <label className={F_LABEL} htmlFor={`e-titular-${b.id}`}>Titular</label>
+                                <input id={`e-titular-${b.id}`} className={F_INPUT} value={eTitular} onChange={(e) => setETitular(e.target.value.toUpperCase())} placeholder="Ej: AMASSO SA" />
+                              </div>
+                              <div>
+                                <label className={F_LABEL} htmlFor={`e-doc-${b.id}`}>RUC / cédula</label>
+                                <input id={`e-doc-${b.id}`} className={F_INPUT} value={eDoc} onChange={(e) => setEDoc(e.target.value)} placeholder="Ej: 80012345-6" />
+                              </div>
+                            </div>
+                          ) : null}
+                        </td>
+                      </tr>
+                      </Fragment>
                     ) : (
                       <tr key={b.id} className="transition-colors hover:bg-slate-50/60">
                         <td className="px-3 py-3 font-mono text-xs text-slate-500">{b.codigo ?? "—"}</td>
