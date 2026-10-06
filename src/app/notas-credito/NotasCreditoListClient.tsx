@@ -225,6 +225,31 @@ export default function NotasCreditoListClient() {
         </p>
       </div>
 
+      {/*
+        No hay botón "Nueva nota de crédito" y no es un olvido: la NC no es un
+        documento que se cree suelto, es la corrección de una factura
+        electrónica ya emitida. El flujo exige una factura con saldo y su XML
+        firmado (ver `validar-factura-origen-xml-para-nc`), y se dispara desde
+        el panel de Facturación Electrónica de esa factura. Con SIFEN apagado
+        no hay facturas electrónicas, así que esta pantalla queda en solo
+        lectura. Se explica acá para que QA no lo persiga como un bug.
+      */}
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+        <p className="text-sm font-semibold text-amber-900">
+          Esta pantalla es de consulta
+        </p>
+        <p className="mt-1 text-sm text-amber-800">
+          La nota de crédito no se crea por sí sola: corrige una factura electrónica ya
+          emitida. Se genera desde la factura, en su panel de Facturación Electrónica.
+          Como la facturación electrónica todavía no está habilitada, no hay facturas
+          sobre las que emitir una NC y el listado se va a ver vacío.
+        </p>
+        <p className="mt-2 text-sm text-amber-800">
+          Para devoluciones de mercadería del día a día, lo que se usa es la devolución
+          del reparto, en el cierre del camión — no la nota de crédito.
+        </p>
+      </div>
+
       {/* Filtros */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-center gap-2">

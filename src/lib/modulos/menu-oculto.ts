@@ -7,10 +7,21 @@
  * Si hace falta cerrar el acceso de verdad, eso va por módulos/permisos.
  */
 
-/** `MenuItem.key` del Sidebar. */
-export const ITEMS_OCULTOS_EN_MENU: ReadonlySet<string> = new Set<string>(["configuracion"]);
+/**
+ * `MenuItem.key` del Sidebar.
+ *
+ * `configuracion` estaba acá y se sacó: el admin de Amasso necesita entrar a
+ * Plan de cuentas, Bancos y Depósitos desde el menú. El link de Bancos apunta
+ * a `/configuracion/bancos`, que es una pantalla hija — no servía para llegar
+ * al panel de Configuración.
+ */
+export const ITEMS_OCULTOS_EN_MENU: ReadonlySet<string> = new Set<string>([]);
 
-/** Prefijos de ruta que no se ofrecen en la navegación mobile. */
+/**
+ * Prefijos de ruta que no se ofrecen en la navegación mobile.
+ * Configuración sigue fuera del celular: es trabajo de escritorio del admin,
+ * no del asesor en la calle. La ruta igual responde si alguien la escribe.
+ */
 export const RUTAS_OCULTAS_EN_NAV: readonly string[] = ["/configuracion"];
 
 export function estaOcultoEnMenu(key: string): boolean {

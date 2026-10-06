@@ -161,10 +161,10 @@ const MENU_STRUCTURE: MenuItem[] = [
   { key: "pagos", slug: "pagos", label: "Pagos", href: "/pagos", icon: Banknote },
   { key: "cobranzas", slug: "cobranzas", label: "Cobranzas", href: "/cobranzas", icon: HandCoins },
   /**
-   * Bancos vive en `/configuracion/bancos`, pero Configuración está oculta del
-   * menú y ésta es la pantalla donde se carga la cuenta propia a la que el
-   * cliente transfiere: sin eso el modal de cobro no tiene a dónde apuntar.
-   * Por eso se ofrece acá, al lado de Cobranzas.
+   * Bancos vive en `/configuracion/bancos` y también se ofrece acá, al lado de
+   * Cobranzas: es la pantalla donde se carga la cuenta propia a la que el
+   * cliente transfiere, y sin eso el modal de cobro no tiene a dónde apuntar.
+   * Queda duplicado con Configuración a propósito — el atajo está donde se usa.
    *
    * El slug sigue siendo "configuracion" y no "cobranzas" a propósito: la ruta
    * está protegida por ese módulo (ver `route-slug-map`), así que mostrarla con
@@ -219,6 +219,9 @@ const MENU_STRUCTURE: MenuItem[] = [
     href: "/configuracion",
     icon: Settings,
     children: [
+      { label: "Plan de cuentas", href: "/configuracion/plan-de-cuentas" },
+      { label: "Bancos", href: "/configuracion/bancos" },
+      { label: "Configuración contable", href: "/configuracion/contable" },
       { label: "Facturación", href: "/configuracion/facturacion" },
       { label: "Equipos y supervisión", href: "/configuracion/omnicanal-equipos" },
     ],

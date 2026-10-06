@@ -40,6 +40,24 @@ export function PlanCuentaFormModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Nivel se edita como texto, no como número.
+   *
+   * Con `<input type="number" value={draft.nivel}>` y `Number(e.target.value)`
+   * el campo quedaba mostrando "02": al tipear un dígito sobre el "0" inicial
+   * React parsea "01" → 1, ve que el valor del estado ya era 1 y no reescribe
+   * el DOM, así que el "0" de adelante se queda en pantalla. Guardando el texto
+   * tal cual se tipea y normalizándolo al salir del campo, lo que se ve es lo
+   * que se guarda.
+   */
+  const [nivelTexto, setNivelTexto] = useState("1");
+
+  /** Nivel efectivo: lo que se manda al guardar. Vacío o basura → 1. */
+  const nivel = useMemo(() => {
+    const n = Number.parseInt(nivelTexto, 10);
+    return Number.isFinite(n) && n >= 1 ? n : 1;
+  }, [nivelTexto]);
+
   useEffect(() => {
     if (!open) return;
     setError(null);
@@ -57,8 +75,10 @@ export function PlanCuentaFormModal({
         cuenta_sset: editing.cuenta_sset ?? "",
         activo: editing.activo,
       });
+      setNivelTexto(String(editing.nivel));
     } else {
       setDraft(emptyDraft());
+      setNivelTexto("1");
     }
   }, [open, editing]);
 
@@ -78,10 +98,9 @@ export function PlanCuentaFormModal({
   // Al elegir padre, sugerir nivel = padre.nivel + 1.
   function onSelectPadre(id: string) {
     const padreId = id === "" ? null : id;
-    setDraft((d) => {
-      const padre = cuentas.find((c) => c.id === padreId);
-      return { ...d, cuenta_padre_id: padreId, nivel: padre ? padre.nivel + 1 : d.nivel };
-    });
+    const padre = cuentas.find((c) => c.id === padreId);
+    if (padre) setNivelTexto(String(padre.nivel + 1));
+    setDraft((d) => ({ ...d, cuenta_padre_id: padreId }));
   }
 
   async function handleSubmit() {
@@ -93,7 +112,7 @@ export function PlanCuentaFormModal({
         cuenta: draft.cuenta.trim(),
         denominacion: draft.denominacion.trim(),
         cuenta_padre_id: draft.cuenta_padre_id,
-        nivel: draft.nivel,
+        nivel,
         naturaleza: draft.naturaleza,
         asentable: draft.asentable,
         centro_costo: draft.centro_costo,
@@ -161,11 +180,12 @@ export function PlanCuentaFormModal({
             <div>
               <label className={F_LABEL}>Nivel *</label>
               <input
-                type="number"
-                min={1}
+                type="text"
+                inputMode="numeric"
                 className={F_INPUT}
-                value={draft.nivel}
-                onChange={(e) => setField("nivel", Number(e.target.value))}
+                value={nivelTexto}
+                onChange={(e) => setNivelTexto(e.target.value.replace(/\D/g, ""))}
+                onBlur={() => setNivelTexto(String(nivel))}
               />
             </div>
           </div>
