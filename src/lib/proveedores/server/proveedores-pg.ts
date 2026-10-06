@@ -61,6 +61,49 @@ export async function insertProveedorCategoria(
   return rows[0];
 }
 
+/** Una categoría en uso no se puede borrar, con el motivo listo para mostrar. */
+export class CategoriaProveedorEnUsoError extends Error {
+  readonly status = 409;
+  constructor(message: string) {
+    super(message);
+    this.name = "CategoriaProveedorEnUsoError";
+  }
+}
+
+/**
+ * Borra una categoría de proveedor. Se niega si algún proveedor la tiene
+ * asignada: borrarla igual dejaría esos proveedores sin categoría sin que nadie
+ * se entere. El mensaje dice cuántos son, para que se puedan reasignar.
+ */
+export async function deleteProveedorCategoria(
+  schemaRaw: string,
+  empresaId: string,
+  id: string
+): Promise<boolean> {
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  const tCat = quoteSchemaTable(schema, "proveedor_categorias");
+  const tRel = quoteSchemaTable(schema, "proveedor_categoria_rel");
+
+  const enUso = await pool().query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM ${tRel} WHERE categoria_id = $1::uuid`,
+    [id]
+  );
+  const n = Number(enUso.rows[0]?.n ?? 0);
+  if (n > 0) {
+    throw new CategoriaProveedorEnUsoError(
+      n === 1
+        ? "Hay 1 proveedor con esta categoría. Cambiásela antes de borrarla."
+        : `Hay ${n} proveedores con esta categoría. Cambiásela antes de borrarla.`
+    );
+  }
+
+  const { rowCount } = await pool().query(
+    `DELETE FROM ${tCat} WHERE id = $1::uuid AND empresa_id = $2::uuid`,
+    [id, empresaId]
+  );
+  return (rowCount ?? 0) > 0;
+}
+
 export async function updateProveedorCategoria(
   schemaRaw: string,
   empresaId: string,

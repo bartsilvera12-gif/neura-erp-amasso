@@ -3,7 +3,11 @@ import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
-import { updateProveedorCategoria } from "@/lib/proveedores/server/proveedores-pg";
+import {
+  updateProveedorCategoria,
+  deleteProveedorCategoria,
+  CategoriaProveedorEnUsoError,
+} from "@/lib/proveedores/server/proveedores-pg";
 import { normalizeUpperText, normalizeUpperNullable } from "@/lib/text/normalize";
 
 export async function PATCH(
@@ -50,5 +54,27 @@ export async function PATCH(
   } catch (err) {
     console.error("[/api/proveedores/categorias/[id] PATCH] outer", err);
     return NextResponse.json(errorResponse("No se pudo actualizar la categoría."), { status: 500 });
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  try {
+    const tenant = await getTenantSupabaseFromAuth(request);
+    if (!tenant) return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
+    const schema = await fetchDataSchemaForEmpresaId(tenant.auth.empresa_id);
+    const { id } = await ctx.params;
+
+    const ok = await deleteProveedorCategoria(schema, tenant.auth.empresa_id, id);
+    if (!ok) return NextResponse.json(errorResponse(API_ERRORS.NOT_FOUND), { status: 404 });
+    return NextResponse.json(successResponse({ ok: true }));
+  } catch (err) {
+    if (err instanceof CategoriaProveedorEnUsoError) {
+      return NextResponse.json(errorResponse(err.message), { status: err.status });
+    }
+    console.error("[/api/proveedores/categorias/[id] DELETE]", err);
+    return NextResponse.json(errorResponse("No se pudo eliminar la categoría."), { status: 500 });
   }
 }

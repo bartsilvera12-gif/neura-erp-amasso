@@ -75,6 +75,31 @@ export default function ProveedorCategoriasPage() {
     else await reload();
   }
 
+  const [borrandoId, setBorrandoId] = useState<string | null>(null);
+
+  async function borrar(c: ProveedorCategoria) {
+    if (!confirm(`¿Borrar la categoría «${c.nombre}»?`)) return;
+    setBorrandoId(c.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/proveedores/categorias/${c.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body?.success === false) {
+        // El servidor avisa si la categoría está asignada a algún proveedor.
+        setError(body?.error ?? "No se pudo borrar la categoría.");
+        return;
+      }
+      await reload();
+    } catch {
+      setError("Error de red al borrar la categoría.");
+    } finally {
+      setBorrandoId(null);
+    }
+  }
+
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -149,14 +174,30 @@ export default function ProveedorCategoriasPage() {
                   )}
                 </td>
                 <td className="py-3 pr-4">
+                  {/* Interruptor, no texto: antes era un chip plano y nadie
+                      se daba cuenta de que se podía tocar. */}
                   <button
                     type="button"
+                    role="switch"
+                    aria-checked={c.activo}
                     onClick={() => toggleActivo(c)}
-                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                      c.activo ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
-                    }`}
+                    title={c.activo ? "Desactivar" : "Activar"}
+                    className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white py-1 pl-1 pr-2.5 transition-colors hover:border-slate-300"
                   >
-                    {c.activo ? "Sí" : "No"}
+                    <span
+                      className={`relative block h-4 w-7 shrink-0 rounded-full transition-colors ${
+                        c.activo ? "bg-emerald-500" : "bg-slate-300"
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${
+                          c.activo ? "left-3.5" : "left-0.5"
+                        }`}
+                      />
+                    </span>
+                    <span className={`text-xs font-semibold ${c.activo ? "text-emerald-700" : "text-slate-500"}`}>
+                      {c.activo ? "Sí" : "No"}
+                    </span>
                   </button>
                 </td>
                 <td className="py-3">
@@ -178,13 +219,23 @@ export default function ProveedorCategoriasPage() {
                       </button>
                     </div>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={() => startEdit(c)}
-                      className="text-sky-600 font-medium hover:underline"
-                    >
-                      Editar
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => startEdit(c)}
+                        className="text-sky-600 font-medium hover:underline"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void borrar(c)}
+                        disabled={borrandoId === c.id}
+                        className="font-medium text-rose-600 hover:underline disabled:opacity-50"
+                      >
+                        {borrandoId === c.id ? "Borrando…" : "Borrar"}
+                      </button>
+                    </div>
                   )}
                 </td>
               </tr>

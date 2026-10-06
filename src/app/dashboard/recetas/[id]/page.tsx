@@ -813,6 +813,17 @@ export default function EditarRecetaPage() {
                   placeholder="Ej: 1500"
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
                 />
+                {/* El punto acá es decimal, pero la tabla de abajo muestra los
+                    miles con punto (1000 se lee "1.000"). Mismo signo, lectura
+                    opuesta: se muestra el valor interpretado para que nadie
+                    cargue mil creyendo que carga uno. */}
+                {newCantidad.trim() !== "" && Number.isFinite(Number(newCantidad)) ? (
+                  <p className="mt-1 text-[11px] text-gray-500">
+                    Se guarda: <b>{Number(newCantidad).toLocaleString("es-PY", { maximumFractionDigits: 3 })}</b>
+                    {newUnidad ? ` ${formatUnidad(newUnidad)}` : ""}
+                    <span className="text-gray-400"> · para decimales usá coma</span>
+                  </p>
+                ) : null}
               </div>
               <div>
                 <label className="block text-[11px] text-gray-500 mb-1">Unidad de consumo</label>
