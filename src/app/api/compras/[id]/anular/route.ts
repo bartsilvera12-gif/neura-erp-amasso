@@ -242,11 +242,15 @@ export async function POST(request: NextRequest, { params }: RouteCtx) {
             createdBy: yo?.id ?? null,
             asiento_original_id: compra.asiento_contable_id,
           });
+          // Solo el estado: `asientos_contables` no tiene `asiento_reversion_id`.
+          // El vínculo entre los dos asientos ya queda por el otro lado — el de
+          // reversión guarda `asiento_original_id`.
+          void rev;
           await client.query(
             `UPDATE ${quoteSchemaTable(schema, "asientos_contables")}
-                SET estado = 'revertido', asiento_reversion_id = $2::uuid
+                SET estado = 'revertido'
               WHERE id = $1::uuid`,
-            [compra.asiento_contable_id, rev.id]
+            [compra.asiento_contable_id]
           );
           estadoContable = "revertido";
         }

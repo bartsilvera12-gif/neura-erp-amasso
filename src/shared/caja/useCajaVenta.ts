@@ -492,6 +492,7 @@ export function useCajaVenta() {
       direccionCliente: cliente?.direccion || null,
       aCredito,
       metodoPago: aCredito ? null : metodoPago,
+      pagos: detallePagos,
       unidades: Object.fromEntries(
         carrito.map((i) => [i.producto.id, i.producto.unidad_medida])
       ),
@@ -598,6 +599,8 @@ export interface ComprobanteCaja {
   direccionCliente: string | null;
   aCredito: boolean;
   metodoPago: MetodoPagoVenta | null;
+  /** Reparto del cobro mixto, para que el comprobante lo pueda desglosar. */
+  pagos?: { metodo_pago: string; monto: number }[];
   /** Unidad de cada producto: no viaja en la venta y sin ella 1,5 KG se lee 1,5 a secas. */
   unidades: Record<string, string>;
 }

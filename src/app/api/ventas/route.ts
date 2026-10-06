@@ -212,6 +212,29 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Reparto del cobro mixto por venta, para que el detalle y la reimpresión
+    // puedan desglosarlo y no digan solo "Mixto".
+    const pagosPorVenta = new Map<string, { metodo_pago: string; monto: number }[]>();
+    try {
+      const tPD = quoteSchemaTable(schema, "ventas_pagos_detalle");
+      const existe = await queryWithRetry<{ t: string | null }>(pool,
+        `SELECT to_regclass($1)::text AS t`, [`${schema}.ventas_pagos_detalle`]);
+      if (existe.rows[0]?.t) {
+        const q = await queryWithRetry<{ venta_id: string; metodo_pago: string; monto: string | number }>(pool,
+          `SELECT venta_id, metodo_pago, monto FROM ${tPD}
+            WHERE empresa_id = $1::uuid ORDER BY created_at`,
+          [empresaId]
+        );
+        for (const r of q.rows) {
+          const arr = pagosPorVenta.get(r.venta_id) ?? [];
+          arr.push({ metodo_pago: r.metodo_pago, monto: Number(r.monto) || 0 });
+          pagosPorVenta.set(r.venta_id, arr);
+        }
+      }
+    } catch (e) {
+      console.warn("[/api/ventas GET] pagos:", e instanceof Error ? e.message : e);
+    }
+
     const itemsQ = await queryWithRetry<VentaItemRow>(pool,
       `SELECT venta_id, producto_id, producto_nombre, sku, cantidad,
               precio_venta_original, precio_venta, tipo_iva, subtotal, monto_iva, total_linea
@@ -262,6 +285,7 @@ export async function GET(request: NextRequest) {
         cliente_direccion: r.cliente_id ? datosCliente.get(r.cliente_id)?.direccion ?? null : null,
         reparto_id: r.reparto_id ?? null,
         reparto_etiqueta: r.reparto_id ? etiquetaReparto.get(r.reparto_id) ?? null : null,
+        pagos: pagosPorVenta.get(r.id) ?? undefined,
         vendedor_nombre: (r as unknown as { created_by?: string | null }).created_by
           ? nombreVendedor.get((r as unknown as { created_by: string }).created_by) ?? null
           : null,

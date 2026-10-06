@@ -99,6 +99,8 @@ export interface DatosComprobante {
   clienteDireccion?: string | null;
   /** "Efectivo", "A crédito", … tal como se cobró. */
   formaPago: string;
+  /** Reparto del cobro mixto. Si viene, el comprobante lista cuánto con cada medio. */
+  pagosDetalle?: { metodo_pago: string; monto: number }[];
   /** Unidad de medida por producto, para que 1,5 no se lea como 1,5 unidades. */
   unidades?: Record<string, string>;
 }
@@ -134,6 +136,9 @@ export function comprobanteEnTexto(d: DatosComprobante): string {
   lineas.push(`IVA incluido: ${gs(d.venta.monto_iva)}`);
   lineas.push(`*TOTAL A PAGAR: ${gs(d.venta.total)}*`);
   lineas.push(`Forma de pago: ${d.formaPago}`);
+  for (const p of d.pagosDetalle ?? []) {
+    lineas.push(`  ${etiquetaMetodo(p.metodo_pago)}: ${p.monto.toLocaleString("es-PY")}`);
+  }
   if (d.emisor?.leyenda) {
     lineas.push("");
     lineas.push(d.emisor.leyenda);
@@ -205,6 +210,19 @@ export function ubicacionEmisor(e: EmisorComprobante | null): string {
 
 /** Logo de la cabecera de la factura. */
 export const LOGO_FACTURA = "/brand/logo-factura.png";
+
+/** Nombre legible de un medio de cobro, para el desglose del pago mixto. */
+export function etiquetaMetodo(m: string): string {
+  const mapa: Record<string, string> = {
+    efectivo: "Efectivo",
+    tarjeta: "Tarjeta",
+    transferencia: "Transferencia",
+    cheque: "Cheque",
+    mixto: "Mixto",
+    otro: "Otro",
+  };
+  return mapa[m] ?? m;
+}
 
 /** "17/09/2026 06:12:25": fecha y hora de emisión como van en la factura. */
 export function fechaHoraEmision(iso: string): string {

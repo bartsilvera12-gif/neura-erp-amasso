@@ -4,6 +4,7 @@ import { Printer } from "lucide-react";
 import HojaA4 from "@/shared/caja/HojaA4";
 import {
   LOGO_FACTURA,
+  etiquetaMetodo,
   esFacturaLegal,
   fechaCorta,
   miles,
@@ -101,6 +102,13 @@ function Copia({ datos, copia }: { datos: DatosComprobante; copia: string }) {
           valor={`Pago al contado de la ${documento}`}
         />
         <Renglon etiqueta="Forma de pago" valor={datos.formaPago} />
+        {(datos.pagosDetalle ?? []).map((p) => (
+          <Renglon
+            key={p.metodo_pago}
+            etiqueta={`  ${etiquetaMetodo(p.metodo_pago)}`}
+            valor={p.monto.toLocaleString("es-PY")}
+          />
+        ))}
       </div>
 
       {/* Firma */}

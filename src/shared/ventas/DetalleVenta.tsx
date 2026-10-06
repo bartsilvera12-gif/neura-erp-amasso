@@ -7,6 +7,7 @@ import FacturaVenta from "@/shared/caja/FacturaVenta";
 import { useEmisor } from "@/shared/hooks/useEmisor";
 import { METODOS_PAGO, type Venta } from "@/lib/ventas/types";
 import type { DatosComprobante } from "@/lib/ventas/comprobante";
+import { etiquetaMetodo } from "@/lib/ventas/comprobante";
 
 const gs = (n: number) => `Gs. ${Math.round(n).toLocaleString("es-PY")}`;
 
@@ -30,7 +31,13 @@ function fechaHora(iso: string): string {
 
 function formaDePago(v: Venta): string {
   if (v.tipo_venta === "CREDITO") return v.plazo_dias ? `Crédito a ${v.plazo_dias} días` : "Crédito";
-  return METODOS_PAGO.find((m) => m.value === v.metodo_pago)?.label ?? "Contado";
+  const base = METODOS_PAGO.find((m) => m.value === v.metodo_pago)?.label ?? "Contado";
+  // Mixto a secas no dice nada: se desglosa cuánto entró con cada medio.
+  const det = v.pagos ?? [];
+  if (det.length === 0) return base;
+  return `${base} (${det
+    .map((p) => `${etiquetaMetodo(p.metodo_pago)} ${Math.round(p.monto).toLocaleString("es-PY")}`)
+    .join(" + ")})`;
 }
 
 function Dato({ label, valor }: { label: string; valor: React.ReactNode }) {
@@ -76,6 +83,7 @@ export default function DetalleVenta({
     clienteRuc: venta.cliente_ruc ?? null,
     clienteDireccion: venta.cliente_direccion ?? null,
     formaPago: formaDePago(venta),
+    pagosDetalle: venta.pagos,
     unidades: Object.fromEntries(
       venta.items.filter((i) => i.unidad_medida).map((i) => [i.producto_id, i.unidad_medida as string])
     ),

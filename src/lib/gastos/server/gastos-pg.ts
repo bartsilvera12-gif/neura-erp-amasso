@@ -606,9 +606,13 @@ export async function anularGasto(schemaRaw: string, empresaId: string, id: stri
           moneda: orig.cabecera.moneda, tipo_cambio: Number(orig.cabecera.tipo_cambio) || 1,
           lineas: revLineas, createdBy: userId, asiento_original_id: rows[0].asiento_contable_id,
         });
+        // `asientos_contables` no tiene `asiento_reversion_id`: anular un gasto
+        // contabilizado fallaba con "column does not exist". El vínculo ya está
+        // del otro lado, en `asiento_original_id` del asiento de reversión.
+        void rev;
         await client.query(
-          `UPDATE ${tA} SET estado='revertido', asiento_reversion_id = $2::uuid WHERE id = $1::uuid`,
-          [rows[0].asiento_contable_id, rev.id]
+          `UPDATE ${tA} SET estado='revertido' WHERE id = $1::uuid`,
+          [rows[0].asiento_contable_id]
         );
         estadoContable = "revertido";
       }

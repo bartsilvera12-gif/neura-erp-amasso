@@ -817,6 +817,7 @@ function Comprobante({ caja }: { caja: CajaVenta }) {
     clienteRuc: comp.rucCliente,
     clienteDireccion: comp.direccionCliente,
     formaPago: etiquetaCobro(comp),
+    pagosDetalle: comp.pagos,
     unidades,
   };
 

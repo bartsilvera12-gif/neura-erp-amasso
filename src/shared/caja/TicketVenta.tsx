@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { formatCantidad } from "@/lib/inventario/unidades";
 import {
   LOGO_FACTURA,
+  etiquetaMetodo,
   esFacturaLegal,
   fechaHoraEmision,
   gs,
@@ -130,6 +131,15 @@ export default function TicketVenta({ datos }: { datos: DatosComprobante }) {
           <div className="my-1 border-t border-black" />
           <Fila etiqueta="TOTAL" valor={gs(venta.total)} fuerte />
           <Fila etiqueta="Pago" valor={datos.formaPago} />
+          {/* Cobro mixto: cuánto entró con cada medio. Sin esto el ticket dice
+              solo "Mixto" y el cliente no puede verificar su parte. */}
+          {(datos.pagosDetalle ?? []).map((p) => (
+            <Fila
+              key={p.metodo_pago}
+              etiqueta={`  ${etiquetaMetodo(p.metodo_pago)}`}
+              valor={p.monto.toLocaleString("es-PY")}
+            />
+          ))}
 
           <Linea />
 
