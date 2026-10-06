@@ -27,6 +27,9 @@ export interface Compra {
   precio_venta: number;          // PYG, precio de venta sugerido
   margen_venta: number;          // % margen sobre venta
 
+  /** `registrada` | `pendiente` | `pagada` | `anulada`. Una anulada ya revirtió lo que movió. */
+  estado?: string | null;
+
   tipo_pago: TipoPago;
   plazo_dias?: number;           // solo si tipo_pago === "credito"
   cuotas?: number;               // cantidad de cuotas si es crédito (default 1)

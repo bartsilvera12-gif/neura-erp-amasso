@@ -38,6 +38,8 @@ function mapRow(r: CompraApiRow): Compra {
     precio_venta: Number(r.precio_venta),
     margen_venta: r.margen_venta != null ? Number(r.margen_venta) : 0,
     tipo_pago: r.tipo_pago as Compra["tipo_pago"],
+    // El listado necesita saber si está anulada para no ofrecer anularla otra vez.
+    estado: r.estado ?? null,
     plazo_dias: r.plazo_dias ?? undefined,
     cuotas: r.cuotas ?? undefined,
     nro_timbrado: r.nro_timbrado,

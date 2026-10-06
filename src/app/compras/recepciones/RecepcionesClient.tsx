@@ -256,20 +256,34 @@ function ModalFacturar({ data, cuentas, onClose, onSaved }: {
       </p>
       {error && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-4">
-        <label className="text-xs font-semibold text-slate-500">N° de timbrado *
-          <input value={timbrado} onChange={(e) => setTimbrado(e.target.value.toUpperCase())} className={`mt-1 ${INPUT}`} /></label>
-        <label className="text-xs font-semibold text-slate-500">Condición
+      {/* Todos los campos con la misma estructura —div > label block > control—
+          para que las etiquetas y los controles queden a la misma altura. Antes
+          dos eran <label> envolviendo el input y el tercero un <div> con label
+          aparte, y ese quedaba más abajo que el resto. */}
+      <div className="mt-3 grid grid-cols-1 items-start gap-3 sm:grid-cols-4">
+        <div>
+          <label className="block text-xs font-semibold text-slate-500">N° de timbrado *</label>
+          <input value={timbrado} onChange={(e) => setTimbrado(e.target.value.toUpperCase())} className={`mt-1 ${INPUT}`} />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-500">Condición</label>
           <select value={tipoPago} onChange={(e) => setTipoPago(e.target.value as "contado" | "credito")} className={`mt-1 ${INPUT}`}>
             <option value="contado">Contado</option><option value="credito">Crédito</option>
-          </select></label>
+          </select>
+        </div>
         {tipoPago === "credito" ? (
-          <label className="text-xs font-semibold text-slate-500">Plazo (días)
-            <input inputMode="numeric" value={plazo} onChange={(e) => setPlazo(e.target.value)} className={`mt-1 ${INPUT}`} /></label>
+          <div>
+            <label className="block text-xs font-semibold text-slate-500">Plazo (días)</label>
+            <input inputMode="numeric" value={plazo} onChange={(e) => setPlazo(e.target.value)} className={`mt-1 ${INPUT}`} />
+          </div>
         ) : (
-          <div className="sm:col-span-2"><label className="text-xs font-semibold text-slate-500">Cuenta de pago *</label>
-            <div className="mt-1"><CuentaCombobox cuentas={cuentas} value={contrapartida} onChange={setContrapartida}
-              placeholder="(Caja o Banco)" /></div></div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold text-slate-500">Cuenta de pago *</label>
+            <div className="mt-1">
+              <CuentaCombobox cuentas={cuentas} value={contrapartida} onChange={setContrapartida}
+                placeholder="(Caja o Banco)" />
+            </div>
+          </div>
         )}
       </div>
 
@@ -287,24 +301,32 @@ function ModalFacturar({ data, cuentas, onClose, onSaved }: {
                   <b className="text-blue-700">Pendiente {fmt(pend)}</b>
                 </span>
               </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <div><label className="text-xs font-semibold text-slate-500">Cuenta contable *</label>
+              <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500">Cuenta contable *</label>
                   <div className="mt-1"><CuentaCombobox cuentas={cuentas} value={ctas[i.id] ?? null}
-                    onChange={(id) => setCtas((c) => ({ ...c, [i.id]: id }))} /></div></div>
-                <div className="grid grid-cols-3 gap-2">
-                  <label className="text-xs font-semibold text-slate-500">Cantidad
+                    onChange={(id) => setCtas((c) => ({ ...c, [i.id]: id }))} /></div>
+                </div>
+                <div className="grid grid-cols-3 items-start gap-2">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500">Cantidad</label>
                     <input inputMode="decimal" value={cant[i.id] ?? ""}
                       onChange={(e) => setCant((c) => ({ ...c, [i.id]: e.target.value }))}
-                      className={`mt-1 ${INPUT} text-right`} /></label>
-                  <label className="text-xs font-semibold text-slate-500">Costo facturado
+                      className={`mt-1 ${INPUT} text-right`} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500">Costo facturado</label>
                     <input inputMode="decimal" value={costo[i.id] ?? ""}
                       onChange={(e) => setCosto((c) => ({ ...c, [i.id]: e.target.value }))}
-                      className={`mt-1 ${INPUT} text-right`} /></label>
-                  <label className="text-xs font-semibold text-slate-500">IVA
+                      className={`mt-1 ${INPUT} text-right`} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500">IVA</label>
                     <select value={ivas[i.id]} onChange={(e) => setIvas((c) => ({ ...c, [i.id]: e.target.value as IvaTipo }))}
                       className={`mt-1 ${INPUT}`}>
                       <option value="10">10%</option><option value="5">5%</option><option value="exenta">Exenta</option>
-                    </select></label>
+                    </select>
+                  </div>
                 </div>
               </div>
               <div className="mt-2 flex flex-wrap justify-between gap-2 text-xs text-slate-500">

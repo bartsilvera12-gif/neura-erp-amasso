@@ -19,14 +19,20 @@ export const METODOS_PAGO: { value: MetodoPagoVenta; label: string }[] = [
 ];
 
 /**
- * Con qué se puede cobrar hoy: efectivo, transferencia o cheque. Es la lista
- * que ofrecen la caja y el cobro de ventas a crédito.
+ * Con qué se puede cobrar hoy: efectivo, tarjeta, transferencia o cheque. Es la
+ * lista que ofrecen la caja y el cobro de ventas a crédito.
  *
- * `METODOS_PAGO` queda completa porque hay ventas viejas con tarjeta o mixto y
- * tienen que seguir mostrándose con su nombre; esta es la que se OFRECE.
+ * `mixto` queda AFUERA a propósito: no está implementado el reparto del monto
+ * entre dos medios. Hoy una venta marcada mixta entraría entera a la caja como
+ * `otro`, sin registrar cuánto fue con cada uno, y el arqueo quedaría sin poder
+ * explicar la diferencia. Para ofrecerlo hace falta la pantalla que divide el
+ * total y escribir una fila por medio en `ventas_pagos_detalle`.
+ *
+ * `METODOS_PAGO` queda completa porque hay ventas con mixto que tienen que
+ * seguir mostrándose con su nombre; esta es la que se OFRECE.
  */
 export const METODOS_COBRO: { value: MetodoPagoVenta; label: string }[] = METODOS_PAGO.filter(
-  (m) => m.value === "efectivo" || m.value === "transferencia" || m.value === "cheque"
+  (m) => m.value !== "mixto"
 );
 
 /**

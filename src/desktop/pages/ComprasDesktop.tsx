@@ -12,6 +12,7 @@ import {
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import NuevaCompraModal from "@/app/compras/NuevaCompraModal";
 import type { Compra, TipoPago } from "@/lib/compras/types";
+import { useIsAdmin } from "@/lib/auth/use-is-admin";
 
 const inputFilterClass =
   "border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#4FAEB2]/40 focus:border-[#4FAEB2] focus:outline-none";
@@ -319,6 +320,42 @@ function CompraDetalleModal({
   const [error, setError] = useState<string | null>(null);
   const [docUrl, setDocUrl] = useState<string | null>(null);
   const [docLoading, setDocLoading] = useState(false);
+  const { isAdmin } = useIsAdmin();
+  const [anulando, setAnulando] = useState(false);
+  const yaAnulada = (compra.estado ?? "") === "anulada";
+
+  /**
+   * Anular revierte el stock que ESTA compra movió y contrapasa su asiento. Una
+   * compra facturada contra una recepción no movió stock —entró con la
+   * recepción—, y el servidor lo contempla ítem por ítem.
+   */
+  async function anular() {
+    if (anulando || yaAnulada) return;
+    const motivo = prompt(
+      "¿Por qué se anula esta compra? (queda registrado)\n\nSe va a revertir el stock que haya movido y a contrapasar su asiento contable."
+    );
+    if (motivo === null) return;
+    setAnulando(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/compras/${compra.id}/anular`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ motivo: motivo.trim() || null }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body?.success === false) {
+        setError(body?.error ?? "No se pudo anular la compra.");
+        return;
+      }
+      onSaved();
+    } catch {
+      setError("Error de red al anular la compra.");
+    } finally {
+      setAnulando(false);
+    }
+  }
 
   useEffect(() => {
     let cancel = false;
@@ -446,7 +483,19 @@ function CompraDetalleModal({
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 border-t p-5">
+        <div className="flex items-center justify-end gap-2 border-t p-5">
+          {isAdmin && !yaAnulada ? (
+            <button
+              onClick={() => void anular()}
+              disabled={anulando}
+              className="mr-auto rounded-lg border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+            >
+              {anulando ? "Anulando…" : "Anular compra"}
+            </button>
+          ) : null}
+          {yaAnulada ? (
+            <span className="mr-auto text-xs font-semibold text-rose-600">Compra anulada</span>
+          ) : null}
           <button onClick={onClose} className="rounded-lg border px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
             Cerrar
           </button>
