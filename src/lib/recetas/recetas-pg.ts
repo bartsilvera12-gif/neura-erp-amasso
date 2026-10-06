@@ -225,15 +225,24 @@ export async function listProductosVendiblesSinReceta(sb: AppSupabaseClient, emp
     .eq("empresa_id", empresaId);
   if (errUsados) throw new Error(errUsados.message);
   const usadosSet = new Set((usados ?? []).map((r: { producto_id: string }) => r.producto_id));
-  // Solo productos elaborados / tipo Menú: vendibles que NO controlan su propio stock
-  // (se arman por receta). Excluye reventa (controla_stock=true) y materia prima (es_vendible=false).
+  // Cualquier producto activo que todavía no tenga receta.
+  //
+  // El original (La Mexicana) exigía `es_vendible = true` y `controla_stock = false`:
+  // su modelo es un restaurante, donde un plato del menú se prepara al vender y
+  // no lleva stock. Acá el modelo es el opuesto —producción previa: el pan se
+  // fabrica, se stockea, se carga al camión y se vende—, así que el terminado SÍ
+  // controla stock. De hecho el flujo de Fabricar le suma al `stock_actual`, que
+  // no tendría sentido si no lo controlara.
+  //
+  // Además esos dos flags no se pueden tocar desde el alta de producto: todos
+  // nacen con `controla_stock = true`, así que el filtro original no dejaba
+  // ningún producto y la pantalla decía "primero creá un producto de tipo Menú"
+  // sin que hubiera forma de crear uno.
   const { data, error } = await sb
     .from("productos")
     .select("id, nombre, sku, precio_venta, unidad_medida")
     .eq("empresa_id", empresaId)
     .eq("activo", true)
-    .eq("es_vendible", true)
-    .eq("controla_stock", false)
     .order("nombre");
   if (error) throw new Error(error.message);
   return (data ?? []).filter((p: { id: string }) => !usadosSet.has(p.id));
@@ -251,7 +260,11 @@ export async function listProductos(
     .eq("activo", true)
     .order("nombre");
   if (filtro === "vendibles") q = q.eq("es_vendible", true);
-  if (filtro === "insumos") q = q.eq("es_insumo", true);
+  // `es_insumo` tampoco se puede marcar desde el alta de producto: todos nacen
+  // en false, así que filtrar por él dejaba el combo de insumos vacío. Cualquier
+  // producto activo puede ser insumo de una receta — en una panadería una masa
+  // madre es a la vez producto e insumo de otra receta.
+  if (filtro === "insumos") q = q.eq("activo", true);
   const { data, error } = await q;
   if (error) throw new Error(error.message);
   return data ?? [];

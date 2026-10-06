@@ -121,7 +121,7 @@ export default function NuevaRecetaPage() {
             Todos los productos del Menú ya tienen una receta.
           </p>
           <p className="mt-1 text-sm text-gray-500">
-            Para crear una nueva receta, primero creá un producto de tipo Menú sin receta, o editá una receta existente.
+            Para crear una receta, primero cargá el producto en Inventario. Acá aparecen los productos activos que todavía no tienen receta.
           </p>
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             <Link

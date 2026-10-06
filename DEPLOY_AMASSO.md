@@ -31,6 +31,7 @@ cada uno.
 | 05 | `05_recetas_produccion.sql` | Completa el CHECK de `movimientos_inventario.origen` con `produccion`, `carga_proveedor` y `ajuste_manual`. Sin esto fallan la fabricación, la carga de camión y el ajuste de inventario. |
 | 06 | `06_vincular_usuario_admin.sql` | Opcional y reusable. Vincula con la empresa un usuario que ya existe en Supabase Auth. Lo busca por email; no toca su contraseña. |
 | 07 | `07_auditoria.sql` | Solo lectura. Siete chequeos de salud: CHECK de vocabulario, fugas, RLS, grants a `anon`, catálogos, realtime y conteo de objetos. |
+| 08 | `08_plan_cuentas.sql` | Siembra el plan de cuentas, la configuración contable y el período. Sin esto Compras no deja registrar nada: pide cuenta contable y de pago, y los selectores salen vacíos. |
 
 ### Un detalle de GoTrue, por si lo volvés a ver
 

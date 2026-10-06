@@ -102,6 +102,14 @@ export default function ProveedoresPage() {
           >
             + Nuevo proveedor
           </Link>
+          {/* La pantalla de categorías existía pero no estaba enlazada desde
+              ningún lado: solo se llegaba escribiendo la URL. */}
+          <Link
+            href="/proveedores/categorias"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-3.5 py-2 text-xs font-semibold text-slate-600 transition-colors hover:border-[#4FAEB2] hover:text-[#3F8E91]"
+          >
+            Categorías
+          </Link>
           <div className="relative min-w-[18rem] flex-1">
             <svg
               xmlns="http://www.w3.org/2000/svg"

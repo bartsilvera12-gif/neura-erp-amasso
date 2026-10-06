@@ -640,7 +640,11 @@ function ClienteBusquedaGlobal({
 
       {open && (
         <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl ring-1 ring-[#4FAEB2]/15">
-          <div className="max-h-64 overflow-y-auto overscroll-y-contain">
+          {/* El alto se acota también contra la ventana: la tarjeta reserva un
+              alto mínimo grande, así que un desplegable de 16rem fijos quedaba
+              por debajo del borde inferior y los clientes del cuarto en adelante
+              no se alcanzaban. */}
+          <div className="max-h-[min(16rem,40vh)] overflow-y-auto overscroll-y-contain">
             {resultados.length === 0 ? (
               <div className="px-4 py-8 text-center text-xs text-slate-400">
                 {query.trim() ? <>Sin resultados para &ldquo;{query.trim()}&rdquo;</> : <>Sin clientes cargados</>}
