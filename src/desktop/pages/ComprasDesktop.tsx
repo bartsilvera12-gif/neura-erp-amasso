@@ -40,6 +40,10 @@ const tipoPagoBadge: Record<TipoPago, string> = {
   credito: "bg-orange-50 text-orange-700",
 };
 
+function esAnulada(c: Compra): boolean {
+  return (c.estado ?? "") === "anulada";
+}
+
 const ivaLabel: Record<string, string> = {
   exenta: "Exenta",
   "5": "IVA 5%",
@@ -50,6 +54,11 @@ export default function ComprasPage() {
   const [todas, setTodas] = useState<Compra[]>([]);
   const [busqueda, setBusqueda] = useState("");
   const [filtroTipoPago, setFiltroTipoPago] = useState<TipoPago | "">("");
+  /**
+   * Las anuladas se ven en la lista, marcadas, en vez de esconderse: QA tenía
+   * que abrir compra por compra para saber cuál estaba anulada.
+   */
+  const [filtroEstado, setFiltroEstado] = useState<"" | "activas" | "anuladas">("");
   const [cuentas, setCuentas] = useState<CuentaContableOpcion[]>([]);
   const [detalle, setDetalle] = useState<Compra | null>(null);
   const [modalNueva, setModalNueva] = useState(false);
@@ -93,10 +102,13 @@ export default function ComprasPage() {
       c.producto_nombre.toLowerCase().includes(texto) ||
       c.numero_control.toLowerCase().includes(texto);
     const coincideTipoPago = filtroTipoPago === "" || c.tipo_pago === filtroTipoPago;
-    return coincideTexto && coincideTipoPago;
+    const coincideEstado =
+      filtroEstado === "" || (filtroEstado === "anuladas") === esAnulada(c);
+    return coincideTexto && coincideTipoPago && coincideEstado;
   });
 
-  const hayFiltros = busqueda || filtroTipoPago;
+  const cantAnuladas = todas.filter(esAnulada).length;
+  const hayFiltros = busqueda || filtroTipoPago || filtroEstado;
 
   return (
     <div className="space-y-6 pb-10">
@@ -165,9 +177,18 @@ export default function ComprasPage() {
             <option value="contado">Contado</option>
             <option value="credito">Crédito</option>
           </select>
+          <select
+            value={filtroEstado}
+            onChange={(e) => setFiltroEstado(e.target.value as "" | "activas" | "anuladas")}
+            className={inputFilterClass}
+          >
+            <option value="">Todos los estados</option>
+            <option value="activas">Activas</option>
+            <option value="anuladas">Anuladas</option>
+          </select>
           {hayFiltros && (
             <button
-              onClick={() => { setBusqueda(""); setFiltroTipoPago(""); }}
+              onClick={() => { setBusqueda(""); setFiltroTipoPago(""); setFiltroEstado(""); }}
               className="text-[11px] font-semibold text-[#3F8E91] underline-offset-2 hover:underline"
             >
               Limpiar
@@ -175,6 +196,7 @@ export default function ComprasPage() {
           )}
           <span className="ml-auto text-[11px] text-slate-400">
             {filtradas.length} de {todas.length} compras
+            {cantAnuladas > 0 && ` · ${cantAnuladas} anulada${cantAnuladas === 1 ? "" : "s"}`}
           </span>
         </div>
 
@@ -184,6 +206,7 @@ export default function ComprasPage() {
             <thead className="bg-slate-50 text-slate-600 text-sm font-semibold">
               <tr>
                 <th className="py-3 pr-4 font-medium">N° Control</th>
+                <th className="py-3 pr-4 font-medium">Estado</th>
                 <th className="py-3 pr-4 font-medium">Proveedor</th>
                 <th className="py-3 pr-4 font-medium">Producto</th>
                 <th className="py-3 pr-4 font-medium">Cuenta contable</th>
@@ -199,7 +222,7 @@ export default function ComprasPage() {
             <tbody>
               {filtradas.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-gray-400">
+                  <td colSpan={12} className="py-12 text-center text-gray-400">
                     {cargando
                       ? "Cargando compras…"
                       : errorCarga
@@ -224,10 +247,23 @@ export default function ComprasPage() {
                   <tr
                     key={c.id}
                     onClick={() => setDetalle(c)}
-                    className="cursor-pointer border-b border-slate-200 last:border-0 hover:bg-slate-50 transition-colors"
+                    className={`cursor-pointer border-b border-slate-200 last:border-0 transition-colors ${
+                      esAnulada(c) ? "bg-rose-50/40 text-gray-400 hover:bg-rose-50" : "hover:bg-slate-50"
+                    }`}
                   >
                     <td className="py-4 pr-4 font-mono text-xs text-gray-500">
                       {c.numero_control}
+                    </td>
+                    <td className="py-4 pr-4">
+                      {esAnulada(c) ? (
+                        <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700">
+                          Anulada
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
+                          Activa
+                        </span>
+                      )}
                     </td>
                     <td className="py-4 pr-4 font-medium text-gray-800">
                       {c.proveedor_nombre}
@@ -257,7 +293,7 @@ export default function ComprasPage() {
                     <td className="py-4 pr-4 text-xs text-gray-500">
                       {c.iva_tipo ? ivaLabel[c.iva_tipo] : "—"}
                     </td>
-                    <td className="py-4 pr-4 text-right tabular-nums font-semibold text-gray-800">
+                    <td className={`py-4 pr-4 text-right tabular-nums font-semibold ${esAnulada(c) ? "text-gray-400 line-through" : "text-gray-800"}`}>
                       {formatGs(c.total)}
                     </td>
                     <td className="py-4 pr-4 text-right tabular-nums text-sm font-medium text-green-600">
