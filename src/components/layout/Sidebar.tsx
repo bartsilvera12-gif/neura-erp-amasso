@@ -750,15 +750,15 @@ export default function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarPr
         ${mobileOpen ? "max-md:translate-x-0" : "max-md:-translate-x-full"}
       `}
     >
-      {/* Logo oficial ZENTRA (blanco sobre azul marca) */}
+      {/* Logo de Amasso. El arte tiene contorno blanco, así que se lee sobre el verde del panel. */}
       <div className="flex h-[7.25rem] shrink-0 items-center justify-between gap-2 border-b border-[color:var(--zentra-sidebar-border)] bg-[color:var(--zentra-sidebar-elevated)]/35 px-3 py-2.5">
         <Link href="/" className={`flex items-center justify-center min-w-0 flex-1 overflow-hidden`}>
           <div
             className={`relative flex items-center justify-center ${collapsed ? "h-11 w-11" : "h-[4.5rem] w-full max-w-[200px]"}`}
           >
             <Image
-              src="/brand/zentra-logo-official.png"
-              alt="ZENTRA"
+              src="/brand/amasso-logo.png"
+              alt="Amasso"
               width={400}
               height={220}
               sizes={collapsed ? "44px" : "200px"}

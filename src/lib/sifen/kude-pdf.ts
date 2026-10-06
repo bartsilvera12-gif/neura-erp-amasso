@@ -112,7 +112,10 @@ function formatMonto(nStr: string, moneda: string): string {
 }
 
 function readLogoBytes(): Uint8Array | null {
-  const p = path.join(process.cwd(), "public", "logo-neura.png");
+  // Logo propio de la empresa. Antes apuntaba a `public/logo-neura.png`, que es
+  // el de Neura: cada KUDE salía con el logo del proveedor del sistema en vez
+  // del de quien factura.
+  const p = path.join(process.cwd(), "public", "brand", "logo-factura.png");
   try {
     if (fs.existsSync(p)) return new Uint8Array(fs.readFileSync(p));
   } catch {
@@ -257,7 +260,7 @@ export async function buildKudePdfBuffer(input: BuildKudePdfInput): Promise<Buff
 
   /**
    * Branding resolution: si la empresa configuró color/logo válidos, los usamos;
-   * si no, se preservan exactamente NEURA_BLUE / NEURA_BLUE_FILL / logo-neura.png
+   * si no, se preservan exactamente NEURA_BLUE / NEURA_BLUE_FILL / el logo del bundle
    * (cero cambios visuales para empresas sin branding).
    */
   const primaryConfig = parseHexColorToRgb(branding?.colorPrimario ?? null);
@@ -305,7 +308,7 @@ export async function buildKudePdfBuffer(input: BuildKudePdfInput): Promise<Buff
   /**
    * Preferencia de logo:
    *   1) Branding por empresa (PNG bytes ya descargado por el endpoint).
-   *   2) Logo Neura del bundle (`public/logo-neura.png`).
+   *   2) Logo de la empresa del bundle (`public/brand/logo-factura.png`).
    * Si ambos fallan, header se renderiza sin logo (igual que hoy).
    */
   const brandingLogo = branding?.logoBytes ?? null;
