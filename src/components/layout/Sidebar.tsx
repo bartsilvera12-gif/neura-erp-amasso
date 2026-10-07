@@ -309,7 +309,9 @@ const MENU_FAMILIES: { id: string; title: string; itemKeys: string[] }[] = [
     title: "Finanzas",
     itemKeys: ["ventas", "cobranzas", "bancos", "pagos", "gastos", "compras", "notas_credito", "reportes"],
   },
-  { id: "operaciones", title: "Operaciones", itemKeys: ["inventario", "produccion"] },
+  // Recetas va al lado de Inventario: cada producción descuenta insumos del stock.
+  // Antes no estaba en ninguna familia y caía en "Otros", al fondo del menú.
+  { id: "operaciones", title: "Operaciones", itemKeys: ["inventario", "recetas", "produccion"] },
   {
     id: "omnicanal",
     title: "Omnicanal",
