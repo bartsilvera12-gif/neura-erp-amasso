@@ -15,14 +15,16 @@
  * a `/configuracion/bancos`, que es una pantalla hija — no servía para llegar
  * al panel de Configuración.
  */
-export const ITEMS_OCULTOS_EN_MENU: ReadonlySet<string> = new Set<string>([]);
+// Recetas: oculta del menú a pedido (7-oct-2026). La pantalla sigue andando
+// por URL (/dashboard/recetas); para volver a mostrarla, sacarla de acá.
+export const ITEMS_OCULTOS_EN_MENU: ReadonlySet<string> = new Set<string>(["recetas"]);
 
 /**
  * Prefijos de ruta que no se ofrecen en la navegación mobile.
  * Configuración sigue fuera del celular: es trabajo de escritorio del admin,
  * no del asesor en la calle. La ruta igual responde si alguien la escribe.
  */
-export const RUTAS_OCULTAS_EN_NAV: readonly string[] = ["/configuracion"];
+export const RUTAS_OCULTAS_EN_NAV: readonly string[] = ["/configuracion", "/dashboard/recetas"];
 
 export function estaOcultoEnMenu(key: string): boolean {
   return ITEMS_OCULTOS_EN_MENU.has(key);
