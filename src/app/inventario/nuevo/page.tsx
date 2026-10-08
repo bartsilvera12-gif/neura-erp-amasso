@@ -31,6 +31,17 @@ export default function NuevoProductoPage() {
     unidad_medida: "",
   });
   const [submitting, setSubmitting] = useState(false);
+  /**
+   * Materia prima: harina, levadura, azúcar… Se compra y se consume en
+   * producción, no se vende, así que no lleva precio de venta y no aparece en
+   * la caja. Desde Inventario › Materia prima se llega con `?tipo=materia_prima`.
+   */
+  const [esMateriaPrima, setEsMateriaPrima] = useState(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("tipo") === "materia_prima") {
+      setEsMateriaPrima(true);
+    }
+  }, []);
   /** SKU ya cargados, para que el correlativo sugerido no choque con uno existente. */
   const [skusUsados, setSkusUsados] = useState<string[]>([]);
   /** Se apaga apenas el usuario escribe su propio SKU: a partir de ahí no se pisa. */
@@ -292,7 +303,7 @@ export default function NuevoProductoPage() {
           nombre: form.nombre.trim().toUpperCase(),
           sku: sku.toUpperCase(),
           costo_promedio: parseFloat(form.costo_promedio) || 0,
-          precio_venta: parseFloat(form.precio_venta) || 0,
+          precio_venta: esMateriaPrima ? 0 : parseFloat(form.precio_venta) || 0,
           stock_actual: parseInt(form.stock_actual) || 0,
           stock_minimo: parseInt(form.stock_minimo) || 0,
           unidad_medida: form.unidad_medida.trim().toUpperCase(),
@@ -305,6 +316,8 @@ export default function NuevoProductoPage() {
           categoria_principal_id: categoriaId,
           ubicacion_principal_id: ubicacionId,
           proveedor_principal_id: proveedorId,
+          es_insumo: esMateriaPrima,
+          es_vendible: !esMateriaPrima,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : "No se pudo guardar el producto.";
@@ -399,6 +412,32 @@ export default function NuevoProductoPage() {
               </Link>
             </div>
           )}
+
+          {/* Tipo */}
+          <div>
+            <label className={labelClass}>Tipo</label>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {[
+                { mp: false, titulo: "Producto de venta", detalle: "Se vende en la caja y en los camiones." },
+                { mp: true, titulo: "Materia prima", detalle: "Para producción. No se vende ni aparece en la caja." },
+              ].map((o) => (
+                <button
+                  key={o.titulo}
+                  type="button"
+                  onClick={() => setEsMateriaPrima(o.mp)}
+                  aria-pressed={esMateriaPrima === o.mp}
+                  className={`rounded-lg border px-4 py-3 text-left transition-colors ${
+                    esMateriaPrima === o.mp
+                      ? "border-[#4FAEB2] bg-[#4FAEB2]/10 ring-2 ring-[#4FAEB2]/30"
+                      : "border-slate-200 bg-white hover:border-[#4FAEB2]/50"
+                  }`}
+                >
+                  <span className="block text-sm font-semibold text-slate-800">{o.titulo}</span>
+                  <span className="mt-0.5 block text-xs text-slate-500">{o.detalle}</span>
+                </button>
+              ))}
+            </div>
+          </div>
 
           {/* Nombre */}
           <div>
@@ -530,7 +569,7 @@ export default function NuevoProductoPage() {
           {/* Costo + Markup + Precio — bloque reactivo */}
           <div>
             <p className="text-xs text-gray-400 mb-3 uppercase tracking-wide font-semibold">
-              Precios — los tres campos son reactivos entre sí
+              {esMateriaPrima ? "Costo" : "Precios — los tres campos son reactivos entre sí"}
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
 
@@ -546,6 +585,7 @@ export default function NuevoProductoPage() {
                 />
               </div>
 
+              {!esMateriaPrima && (<>
               <div>
                 <label className={labelClass}>Markup s/costo (%)</label>
                 <div className="relative">
@@ -576,11 +616,12 @@ export default function NuevoProductoPage() {
                   required
                 />
               </div>
+              </>)}
 
             </div>
 
             {/* Indicadores de rentabilidad en tiempo real */}
-            {tieneAmbos && markupCalc !== null && margenVentaCalc !== null && (
+            {!esMateriaPrima && tieneAmbos && markupCalc !== null && margenVentaCalc !== null && (
               <div className="mt-4 space-y-3">
 
                 {/* Advertencia de pérdida */}

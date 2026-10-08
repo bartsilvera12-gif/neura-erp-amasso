@@ -285,6 +285,10 @@ export async function GET(request: NextRequest) {
     const ivaP = hayIva ? "p.tipo_iva" : "NULL::text AS tipo_iva";
     const ivaSinAlias = hayIva ? "tipo_iva" : "NULL::text AS tipo_iva";
 
+    // La materia prima (harina, levadura…) no se vende: queda fuera de la caja,
+    // sea del salón o del camión. Inventario sí la ve, porque es su maestro.
+    const soloVendibles = paraVenta ? "AND p.es_vendible IS NOT FALSE" : "";
+
     const sqlSalon = `
       WITH en_camiones AS (
         SELECT su.producto_id, sum(su.stock_actual) AS cantidad
@@ -299,10 +303,11 @@ export async function GET(request: NextRequest) {
              p.stock_minimo, p.unidad_medida, p.metodo_valuacion, p.activo,
              p.created_at, p.updated_at, p.codigo_barras, p.codigo_barras_interno,
              p.imagen_path, p.imagen_url, p.categoria_principal_id,
-             p.ubicacion_principal_id, p.proveedor_principal_id, ${ivaP}
+             p.ubicacion_principal_id, p.proveedor_principal_id, ${ivaP},
+             p.es_insumo, p.es_vendible
         FROM ${t} p
         LEFT JOIN en_camiones ec ON ec.producto_id = p.id
-       WHERE p.empresa_id = $1::uuid AND p.activo = true
+       WHERE p.empresa_id = $1::uuid AND p.activo = true ${soloVendibles}
        ORDER BY p.nombre`;
 
     // Sin las tablas de ubicación no hay camiones que descontar: el stock de la
@@ -322,20 +327,22 @@ export async function GET(request: NextRequest) {
           : `SELECT id, empresa_id, nombre, sku, costo_promedio, precio_venta, stock_actual, stock_minimo,
                   unidad_medida, metodo_valuacion, activo, created_at, updated_at,
                   codigo_barras, codigo_barras_interno, imagen_path, imagen_url,
-                  categoria_principal_id, ubicacion_principal_id, proveedor_principal_id, ${ivaSinAlias}
-             FROM ${t}
-            WHERE empresa_id = $1::uuid AND activo = true
+                  categoria_principal_id, ubicacion_principal_id, proveedor_principal_id, ${ivaSinAlias},
+                  es_insumo, es_vendible
+             FROM ${t} p
+            WHERE empresa_id = $1::uuid AND activo = true ${soloVendibles}
             ORDER BY nombre`
         : `SELECT p.id, p.empresa_id, p.nombre, p.sku, p.costo_promedio, p.precio_venta,
                   COALESCE(su.stock_actual, 0) AS stock_actual,
                   p.stock_minimo, p.unidad_medida, p.metodo_valuacion, p.activo,
                   p.created_at, p.updated_at, p.codigo_barras, p.codigo_barras_interno,
                   p.imagen_path, p.imagen_url, p.categoria_principal_id,
-                  p.ubicacion_principal_id, p.proveedor_principal_id, ${ivaP}
+                  p.ubicacion_principal_id, p.proveedor_principal_id, ${ivaP},
+                  p.es_insumo, p.es_vendible
              FROM ${t} p
              JOIN ${quoteSchemaTable(schema, "inventario_stock_ubicacion")} su
                ON su.producto_id = p.id AND su.ubicacion_id = $2::uuid
-            WHERE p.empresa_id = $1::uuid AND p.activo = true AND su.stock_actual > 0
+            WHERE p.empresa_id = $1::uuid AND p.activo = true AND su.stock_actual > 0 ${soloVendibles}
             ORDER BY p.nombre`;
 
     const { rows } = camionSinUbicacion
@@ -434,6 +441,7 @@ export async function POST(request: NextRequest) {
     const categoriaPrincipalId = body.categoria_principal_id ? String(body.categoria_principal_id) : null;
     const ubicacionPrincipalId = body.ubicacion_principal_id ? String(body.ubicacion_principal_id) : null;
     const proveedorPrincipalId = body.proveedor_principal_id ? String(body.proveedor_principal_id) : null;
+    const esMateriaPrima = body.es_materia_prima === true;
 
     if (categoriaPrincipalId && !(await existsInTenant(schema, empresaId, "categorias_productos", categoriaPrincipalId))) {
       return NextResponse.json(errorResponse("La categoría seleccionada no existe."), { status: 400 });
@@ -460,6 +468,7 @@ export async function POST(request: NextRequest) {
         categoria_principal_id: categoriaPrincipalId,
         ubicacion_principal_id: ubicacionPrincipalId,
         proveedor_principal_id: proveedorPrincipalId,
+        es_materia_prima: esMateriaPrima,
       });
 
       // Inventario inicial (mismo schema, via PG directo).

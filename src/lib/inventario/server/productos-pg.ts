@@ -80,6 +80,19 @@ export interface ProductoRow {
   categoria_principal_id: string | null;
   ubicacion_principal_id: string | null;
   proveedor_principal_id: string | null;
+  es_insumo: boolean;
+  es_vendible: boolean;
+}
+
+/**
+ * Materia prima = insumo que no se vende (harina, levadura…). Se guarda en las
+ * dos columnas que ya existían y nadie llenaba: `es_insumo = true` y
+ * `es_vendible = false`. No se usa `tipo_producto` porque su CHECK sólo admite
+ * reventa/repuesto/servicio y ampliarlo es una migración más para algo que
+ * estas dos columnas ya dicen.
+ */
+export function flagsMateriaPrima(esMateriaPrima: boolean): { es_insumo: boolean; es_vendible: boolean } {
+  return { es_insumo: esMateriaPrima, es_vendible: !esMateriaPrima };
 }
 
 export interface InsertProductoInput {
@@ -96,13 +109,15 @@ export interface InsertProductoInput {
   categoria_principal_id?: string | null;
   ubicacion_principal_id?: string | null;
   proveedor_principal_id?: string | null;
+  es_materia_prima?: boolean;
 }
 
 const RETURNING = `
   id, empresa_id, nombre, sku, costo_promedio, precio_venta, stock_actual, stock_minimo,
   unidad_medida, metodo_valuacion, activo, created_at, updated_at,
   codigo_barras, codigo_barras_interno, imagen_path, imagen_url,
-  categoria_principal_id, ubicacion_principal_id, proveedor_principal_id
+  categoria_principal_id, ubicacion_principal_id, proveedor_principal_id,
+  es_insumo, es_vendible
 `;
 
 // ─── Operaciones ──────────────────────────────────────────────────────────
@@ -118,11 +133,13 @@ export async function insertProducto(
     INSERT INTO ${t} (
       empresa_id, nombre, sku, costo_promedio, precio_venta, stock_actual, stock_minimo,
       unidad_medida, metodo_valuacion, codigo_barras, codigo_barras_interno,
-      categoria_principal_id, ubicacion_principal_id, proveedor_principal_id
+      categoria_principal_id, ubicacion_principal_id, proveedor_principal_id,
+      es_insumo, es_vendible
     ) VALUES (
       $1::uuid, $2, $3, $4::numeric, $5::numeric, $6::numeric, $7::numeric,
       $8, $9, $10, COALESCE($11::boolean, false),
-      $12::uuid, $13::uuid, $14::uuid
+      $12::uuid, $13::uuid, $14::uuid,
+      $15::boolean, $16::boolean
     )
     RETURNING ${RETURNING}
   `;
@@ -141,6 +158,8 @@ export async function insertProducto(
     d.categoria_principal_id ?? null,
     d.ubicacion_principal_id ?? null,
     d.proveedor_principal_id ?? null,
+    flagsMateriaPrima(d.es_materia_prima === true).es_insumo,
+    flagsMateriaPrima(d.es_materia_prima === true).es_vendible,
   ];
   try {
     const { rows } = await pool().query<ProductoRow>(sql, params);
@@ -166,6 +185,7 @@ export interface UpdateProductoInput {
   categoria_principal_id?: string | null;
   ubicacion_principal_id?: string | null;
   proveedor_principal_id?: string | null;
+  es_materia_prima?: boolean;
 }
 
 /** Update parcial. Devuelve la fila o null si no existe / no pertenece a la empresa. */
@@ -208,6 +228,11 @@ export async function updateProductoPg(
   if (patch.categoria_principal_id !== undefined) add("categoria_principal_id", patch.categoria_principal_id || null, "::uuid");
   if (patch.ubicacion_principal_id !== undefined) add("ubicacion_principal_id", patch.ubicacion_principal_id || null, "::uuid");
   if (patch.proveedor_principal_id !== undefined) add("proveedor_principal_id", patch.proveedor_principal_id || null, "::uuid");
+  if (patch.es_materia_prima !== undefined) {
+    const f = flagsMateriaPrima(patch.es_materia_prima);
+    add("es_insumo", f.es_insumo, "::boolean");
+    add("es_vendible", f.es_vendible, "::boolean");
+  }
   if (sets.length === 0) return await getProductoPg(schemaRaw, empresaId, id);
 
   sets.push(`updated_at = now()`);

@@ -21,6 +21,14 @@ export interface Producto {
   proveedor_principal_id?: string | null;
   /** IVA con el que se vende: "5%" (pollo), "10%", "EXENTA". `null` = sin definir. */
   tipo_iva?: string | null;
+  /** Insumo para producción. Con `es_vendible = false` es materia prima: no va a la caja. */
+  es_insumo?: boolean;
+  es_vendible?: boolean;
+}
+
+/** Materia prima: se compra y se consume en producción, no se vende. */
+export function esMateriaPrima(p: Pick<Producto, "es_insumo" | "es_vendible">): boolean {
+  return p.es_vendible === false;
 }
 
 export interface MovimientoInventario {

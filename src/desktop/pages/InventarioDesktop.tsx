@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { deleteProducto, getProductos } from "@/lib/inventario/storage";
-import type { Producto } from "@/lib/inventario/types";
+import { esMateriaPrima, type Producto } from "@/lib/inventario/types";
 import { Pencil, Trash2 } from "lucide-react";
 import MiniaturaProducto from "@/components/inventario/MiniaturaProducto";
 import { formatCantidad } from "@/lib/inventario/unidades";
@@ -53,6 +53,12 @@ export default function InventarioPage() {
 
   // Busqueda unica global + paginado
   const [query, setQuery] = useState("");
+  /**
+   * Inventario separado: lo que se vende y la materia prima de producción
+   * (harina, levadura…) no se mezclan en la misma lista.
+   */
+  const [vista, setVista] = useState<"venta" | "materia_prima">("venta");
+  const cantMateriaPrima = todos.filter(esMateriaPrima).length;
   const [pageSize, setPageSize] = useState<25 | 50 | 100 | "all">(25);
 
   useEffect(() => {
@@ -81,6 +87,7 @@ export default function InventarioPage() {
   // Filtro unico: matchea contra cualquier dato visible del producto.
   // El query se separa por palabras y todas deben matchear (AND), case-insensitive.
   const filtradosTodos = todos.filter((p) => {
+    if ((vista === "materia_prima") !== esMateriaPrima(p)) return false;
     const q = query.trim().toLowerCase();
     if (q === "") return true;
     const u = p.ubicacion_principal_id ? ubicacionById.get(p.ubicacion_principal_id) : null;
@@ -161,17 +168,31 @@ export default function InventarioPage() {
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
 
         <div className="mb-5 flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span aria-hidden="true" className="block h-5 w-1 rounded-full bg-[#4FAEB2]" />
-            <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600">
-              Productos
-            </h2>
+          <div role="tablist" aria-label="Tipo de inventario" className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+            {([
+              { id: "venta", label: "Productos de venta", n: todos.length - cantMateriaPrima },
+              { id: "materia_prima", label: "Materia prima", n: cantMateriaPrima },
+            ] as const).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={vista === t.id}
+                onClick={() => setVista(t.id)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  vista === t.id ? "bg-white text-[#3F8E91] shadow-sm" : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                {t.label}
+                {!cargando && <span className="ml-1.5 text-slate-400">{t.n}</span>}
+              </button>
+            ))}
           </div>
           <Link
-            href="/inventario/nuevo"
+            href={vista === "materia_prima" ? "/inventario/nuevo?tipo=materia_prima" : "/inventario/nuevo"}
             className="inline-flex items-center gap-1.5 rounded-xl bg-[#4FAEB2] px-3.5 py-2 text-xs font-semibold text-white shadow-sm shadow-[#4FAEB2]/25 transition-colors hover:bg-[#3F8E91]"
           >
-            + Nuevo producto
+            {vista === "materia_prima" ? "+ Nueva materia prima" : "+ Nuevo producto"}
           </Link>
           <div className="relative min-w-[16rem] flex-1">
             <svg
@@ -268,7 +289,9 @@ export default function InventarioPage() {
                   <td colSpan={10} className="py-12 text-center text-sm text-slate-400">
                     {query.trim()
                       ? `Ningún producto coincide con “${query.trim()}”.`
-                      : "Todavía no hay productos cargados."}
+                      : vista === "materia_prima"
+                        ? "Todavía no hay materia prima cargada. Usá “+ Nueva materia prima”, o editá un producto y marcalo como materia prima."
+                        : "Todavía no hay productos cargados."}
                   </td>
                 </tr>
               ) : null}
@@ -288,7 +311,9 @@ export default function InventarioPage() {
                     </td>
                     <td className="py-4 pr-4 text-gray-500 font-mono">{p.sku}</td>
                     <td className="py-4 pr-4 text-gray-700">{formatGs(p.costo_promedio)}</td>
-                    <td className="py-4 pr-4 text-gray-700">{formatGs(p.precio_venta)}</td>
+                    <td className="py-4 pr-4 text-gray-700">
+                      {esMateriaPrima(p) ? <span className="text-xs text-slate-400">No se vende</span> : formatGs(p.precio_venta)}
+                    </td>
                     <td className="py-4 pr-4 text-center">
                       <span className={`font-semibold ${stockBajo ? "text-red-600" : "text-gray-800"}`}>
                         {formatCantidad(p.stock_actual, p.unidad_medida)}
@@ -313,8 +338,8 @@ export default function InventarioPage() {
                           })()
                         : <span className="text-gray-300">—</span>}
                     </td>
-                    <td className={`py-4 pr-4 text-right tabular-nums font-semibold ${margenColor(margen)}`}>
-                      {margen.toFixed(2)}%
+                    <td className={`py-4 pr-4 text-right tabular-nums font-semibold ${esMateriaPrima(p) ? "text-slate-300" : margenColor(margen)}`}>
+                      {esMateriaPrima(p) ? "—" : `${margen.toFixed(2)}%`}
                     </td>
                     <td className="py-4 pl-6">
                       {/* Centradas y separadas del margen: pegadas al número de

@@ -39,6 +39,8 @@ export default function EditarProductoPage() {
   const [imagenUrl, setImagenUrl] = useState<string | null>(null);
   const [codigoOriginal, setCodigoOriginal] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  /** Materia prima: no se vende, no lleva precio y no aparece en la caja. */
+  const [esMateriaPrima, setEsMateriaPrima] = useState(false);
   const [generandoCodigo, setGenerandoCodigo] = useState(false);
 
   // Relaciones
@@ -143,6 +145,7 @@ export default function EditarProductoPage() {
       setCategoriaId(p.categoria_principal_id ?? null);
       setUbicacionId(p.ubicacion_principal_id ?? null);
       setProveedorId(p.proveedor_principal_id ?? null);
+      setEsMateriaPrima(p.es_vendible === false);
     }).finally(() => {
       if (!cancelled) setCargando(false);
     });
@@ -246,6 +249,8 @@ export default function EditarProductoPage() {
         nombre: form.nombre.trim().toUpperCase(),
         sku: form.sku.trim().toUpperCase(),
         costo_promedio: parseFloat(form.costo_promedio) || 0,
+        // Se conserva el precio que tenía aunque pase a materia prima: si
+        // vuelve a ser de venta, no hay que volver a cargarlo.
         precio_venta: parseFloat(form.precio_venta) || 0,
         stock_actual: parseInt(form.stock_actual) || 0,
         stock_minimo: parseInt(form.stock_minimo) || 0,
@@ -253,6 +258,8 @@ export default function EditarProductoPage() {
         categoria_principal_id: categoriaId,
         ubicacion_principal_id: ubicacionId,
         proveedor_principal_id: proveedorId,
+        es_insumo: esMateriaPrima,
+        es_vendible: !esMateriaPrima,
       };
       if (cambioCodigo) {
         updatePayload.codigo_barras = codigoIngresado || null;
@@ -318,6 +325,31 @@ export default function EditarProductoPage() {
               <p className="text-sm font-semibold text-red-700">{errorDuplicado}</p>
             </div>
           )}
+
+          <div>
+            <label className={labelClass}>Tipo</label>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {[
+                { mp: false, titulo: "Producto de venta", detalle: "Se vende en la caja y en los camiones." },
+                { mp: true, titulo: "Materia prima", detalle: "Para producción. No se vende ni aparece en la caja." },
+              ].map((o) => (
+                <button
+                  key={o.titulo}
+                  type="button"
+                  onClick={() => setEsMateriaPrima(o.mp)}
+                  aria-pressed={esMateriaPrima === o.mp}
+                  className={`rounded-lg border px-4 py-3 text-left transition-colors ${
+                    esMateriaPrima === o.mp
+                      ? "border-[#4FAEB2] bg-[#4FAEB2]/10 ring-2 ring-[#4FAEB2]/30"
+                      : "border-slate-200 bg-white hover:border-[#4FAEB2]/50"
+                  }`}
+                >
+                  <span className="block text-sm font-semibold text-slate-800">{o.titulo}</span>
+                  <span className="mt-0.5 block text-xs text-slate-500">{o.detalle}</span>
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div>
             <label className={labelClass}>Nombre del producto</label>
@@ -484,7 +516,7 @@ export default function EditarProductoPage() {
           </div>
 
           <div>
-            <p className="text-xs text-gray-400 mb-3 uppercase tracking-wide font-semibold">Precios</p>
+            <p className="text-xs text-gray-400 mb-3 uppercase tracking-wide font-semibold">{esMateriaPrima ? "Costo" : "Precios"}</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               <div>
                 <label className={labelClass}>Costo promedio (Gs.)</label>
@@ -496,6 +528,7 @@ export default function EditarProductoPage() {
                   required
                 />
               </div>
+              {!esMateriaPrima && (<>
               <div>
                 <label className={labelClass}>Markup s/costo (%)</label>
                 <input
@@ -517,8 +550,9 @@ export default function EditarProductoPage() {
                   required
                 />
               </div>
+              </>)}
             </div>
-            {tieneAmbos && markupCalc !== null && margenVentaCalc !== null && (
+            {!esMateriaPrima && tieneAmbos && markupCalc !== null && margenVentaCalc !== null && (
               <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className={`border rounded-lg px-4 py-3 ${esPerdida ? "bg-red-50 border-red-200" : "bg-blue-50 border-blue-100"}`}>
                   <p className={`text-xs font-medium mb-1 ${esPerdida ? "text-red-500" : "text-blue-500"}`}>Markup</p>

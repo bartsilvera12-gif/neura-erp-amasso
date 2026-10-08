@@ -87,7 +87,8 @@ export default function MovimientoMercaderia({
   // En una descarga solo se puede mover lo que hay arriba del camión, así que
   // la lista son sus productos y no el catálogo entero.
   const disponibles = useMemo(() => {
-    if (esCarga) return productos;
+    // La materia prima no sube al camión: se consume en producción, no se vende.
+    if (esCarga) return productos.filter((p) => p.es_vendible !== false);
     const enCamion = new Map(reparto.items.map((i) => [i.producto_id, i.teorico]));
     return productos.filter((p) => (enCamion.get(p.id) ?? 0) > 0);
   }, [esCarga, productos, reparto.items]);

@@ -16,7 +16,8 @@ import type { Producto } from "@/lib/inventario/types";
  *  - Tap en card → /inventario/{id}/editar.
  */
 
-type StockFilter = "todos" | "bajo";
+/** "todos" = productos de venta; la materia prima va en su propio filtro. */
+type StockFilter = "todos" | "bajo" | "materia_prima";
 
 export default function InventarioMobile() {
   const { productos, isLoading, error } = useProductos();
@@ -24,14 +25,17 @@ export default function InventarioMobile() {
   const [stockFilter, setStockFilter] = useState<StockFilter>("todos");
 
   const counts = useMemo(() => {
-    const bajos = productos.filter((p) => Number(p.stock_actual ?? 0) <= Number(p.stock_minimo ?? 0)).length;
-    return { total: productos.length, bajos };
+    const deVenta = productos.filter((p) => p.es_vendible !== false);
+    const bajos = deVenta.filter((p) => Number(p.stock_actual ?? 0) <= Number(p.stock_minimo ?? 0)).length;
+    return { total: deVenta.length, bajos, materiaPrima: productos.length - deVenta.length };
   }, [productos]);
 
   const productosFiltrados = useMemo(() => {
     const q = query.trim().toLowerCase();
     const ordenados = [...productos].sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
     return ordenados.filter((p) => {
+      const mp = p.es_vendible === false;
+      if ((stockFilter === "materia_prima") !== mp) return false;
       if (stockFilter === "bajo" && Number(p.stock_actual ?? 0) > Number(p.stock_minimo ?? 0)) return false;
       if (!q) return true;
       return (
@@ -78,13 +82,18 @@ export default function InventarioMobile() {
         />
       </div>
 
-      <div className="mb-3 flex gap-2">
-        <FilterChip active={stockFilter === "todos"} onClick={() => setStockFilter("todos")} label={`Todos (${counts.total})`} />
+      <div className="mb-3 flex flex-wrap gap-2">
+        <FilterChip active={stockFilter === "todos"} onClick={() => setStockFilter("todos")} label={`De venta (${counts.total})`} />
         <FilterChip
           active={stockFilter === "bajo"}
           onClick={() => setStockFilter("bajo")}
           label={`Bajo stock (${counts.bajos})`}
           tone={counts.bajos > 0 ? "warn" : "default"}
+        />
+        <FilterChip
+          active={stockFilter === "materia_prima"}
+          onClick={() => setStockFilter("materia_prima")}
+          label={`Materia prima (${counts.materiaPrima})`}
         />
       </div>
 
