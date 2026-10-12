@@ -282,41 +282,41 @@ function ListaOrdenes({
         <p className="text-sm text-slate-400">{vacio}</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm">
+          <table className="w-full min-w-[860px] text-sm">
             <thead className="text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
               <tr>
-                <th className="py-2">Orden</th>
-                <th className="py-2">Producto</th>
-                <th className="py-2 text-right">Planificado</th>
-                <th className="py-2 text-right">Obtenido</th>
-                <th className="py-2">Lote / vence</th>
-                <th className="py-2">Depósito</th>
-                <th className="py-2">Estado</th>
-                {acciones ? <th /> : null}
+                <th className="px-3 py-2 first:pl-0">Orden</th>
+                <th className="px-3 py-2 first:pl-0">Producto</th>
+                <th className="px-3 py-2 text-right">Planificado</th>
+                <th className="px-3 py-2 text-right">Obtenido</th>
+                <th className="px-3 py-2 first:pl-0">Lote / vence</th>
+                <th className="px-3 py-2 first:pl-0">Depósito</th>
+                <th className="px-3 py-2 first:pl-0">Estado</th>
+                {acciones ? <th className="px-3 py-2" /> : null}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {ordenes.map((o) => (
                 <tr key={o.id}>
-                  <td className="py-2.5 font-mono text-xs text-slate-500">
+                  <td className="py-2.5 pl-0 pr-3 font-mono text-xs text-slate-500 whitespace-nowrap">
                     {o.numero ?? "—"}
                     <span className="block font-sans text-[11px] text-slate-400">{new Date(o.fecha).toLocaleDateString("es-PY")}</span>
                   </td>
-                  <td className="py-2.5 font-medium text-slate-800">{o.producto_nombre}</td>
-                  <td className="py-2.5 text-right tabular-nums">{o.cantidad_planificada != null ? `${formatCantidad(o.cantidad_planificada, o.unidad ?? "")} ${o.unidad ?? ""}` : "—"}</td>
-                  <td className="py-2.5 text-right tabular-nums">
+                  <td className="px-3 py-2.5 font-medium text-slate-800">{o.producto_nombre}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">{o.cantidad_planificada != null ? `${formatCantidad(o.cantidad_planificada, o.unidad ?? "")} ${o.unidad ?? ""}` : "—"}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
                     {o.estado === "finalizada" ? `${formatCantidad(o.cantidad_fabricada, o.unidad ?? "")} ${o.unidad ?? ""}` : "—"}
                     {o.merma_cantidad > 0 ? <span className="block text-[11px] text-rose-600">merma {formatCantidad(o.merma_cantidad, o.unidad ?? "")}</span> : null}
                   </td>
-                  <td className="py-2.5 text-xs">
+                  <td className="px-3 py-2.5 text-xs">
                     {o.lote ?? "—"}
                     {o.fecha_vencimiento ? <span className="block text-slate-400">vence {new Date(`${o.fecha_vencimiento}T12:00:00`).toLocaleDateString("es-PY")}</span> : null}
                   </td>
-                  <td className="py-2.5 text-xs">{o.ubicacion_nombre ?? "—"}</td>
-                  <td className="py-2.5">
+                  <td className="px-3 py-2.5 text-xs">{o.ubicacion_nombre ?? "—"}</td>
+                  <td className="px-3 py-2.5">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${ESTADO[o.estado].cls}`}>{ESTADO[o.estado].label}</span>
                   </td>
-                  {acciones ? <td className="py-2.5">{acciones(o)}</td> : null}
+                  {acciones ? <td className="px-3 py-2.5">{acciones(o)}</td> : null}
                 </tr>
               ))}
             </tbody>
