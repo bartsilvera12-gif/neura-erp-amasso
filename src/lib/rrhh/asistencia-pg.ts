@@ -41,6 +41,8 @@ export type Empleado = {
   tipo_remuneracion: "mensual" | "jornal";
   fecha_ingreso: string | null;
   aporta_ips: boolean;
+  /** % de comisión sobre lo vendido. Si tiene, aparece como vendedor en la Caja. */
+  comision_pct: number | null;
 };
 
 export type FilaPlanilla = {
@@ -121,7 +123,8 @@ export function estadoPorEntrada(entrada: string, horarioEntrada: string | null)
 const COLS_EMPLEADO = `id, nombre, documento, cargo, telefono,
   to_char(horario_entrada, 'HH24:MI') AS horario_entrada,
   to_char(horario_salida, 'HH24:MI') AS horario_salida, activo,
-  salario_base::float8 AS salario_base, tipo_remuneracion, fecha_ingreso::text AS fecha_ingreso, aporta_ips`;
+  salario_base::float8 AS salario_base, tipo_remuneracion, fecha_ingreso::text AS fecha_ingreso, aporta_ips,
+  comision_pct::float8 AS comision_pct`;
 
 // ─── Empleados ────────────────────────────────────────────────────────────
 
@@ -152,7 +155,15 @@ export type EmpleadoInput = {
   tipo_remuneracion?: unknown;
   fecha_ingreso?: unknown;
   aporta_ips?: unknown;
+  comision_pct?: unknown;
 };
+
+function pctONull(v: unknown): number | null {
+  if (v == null || String(v).trim() === "") return null;
+  const n = Number(String(v).replace(",", "."));
+  if (!Number.isFinite(n) || n < 0 || n > 100) throw new AsistenciaError("La comisión va de 0 a 100 %.");
+  return n;
+}
 
 function montoONull(v: unknown): number | null {
   if (v == null || String(v).trim() === "") return null;
@@ -185,8 +196,8 @@ export async function crearEmpleado(
   try {
     const { rows } = await pool().query<Empleado>(
       `INSERT INTO ${t} (empresa_id, nombre, documento, cargo, telefono, horario_entrada, horario_salida,
-                         salario_base, tipo_remuneracion, fecha_ingreso, aporta_ips)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6::time, $7::time, $8::numeric, $9, $10::date, $11::boolean)
+                         salario_base, tipo_remuneracion, fecha_ingreso, aporta_ips, comision_pct)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6::time, $7::time, $8::numeric, $9, $10::date, $11::boolean, $12::numeric)
        RETURNING ${COLS_EMPLEADO}`,
       [
         empresaId,
@@ -200,6 +211,7 @@ export async function crearEmpleado(
         d.tipo_remuneracion === "jornal" ? "jornal" : "mensual",
         fechaONull(d.fecha_ingreso),
         d.aporta_ips === false ? false : true,
+        pctONull(d.comision_pct),
       ]
     );
     return rows[0];
@@ -236,6 +248,7 @@ export async function actualizarEmpleado(
   if (d.tipo_remuneracion === "mensual" || d.tipo_remuneracion === "jornal") add("tipo_remuneracion", d.tipo_remuneracion);
   if (d.fecha_ingreso !== undefined) add("fecha_ingreso", fechaONull(d.fecha_ingreso), "::date");
   if (typeof d.aporta_ips === "boolean") add("aporta_ips", d.aporta_ips, "::boolean");
+  if (d.comision_pct !== undefined) add("comision_pct", pctONull(d.comision_pct), "::numeric");
   if (sets.length === 0) throw new AsistenciaError("No hay nada para actualizar.");
   sets.push("updated_at = now()");
   params.push(id, empresaId);
@@ -270,6 +283,7 @@ export async function planillaDelDia(
             to_char(e.horario_entrada, 'HH24:MI') AS horario_entrada,
             to_char(e.horario_salida, 'HH24:MI') AS horario_salida, e.activo,
             e.salario_base::float8 AS salario_base, e.tipo_remuneracion, e.fecha_ingreso::text AS fecha_ingreso, e.aporta_ips,
+            e.comision_pct::float8 AS comision_pct,
             a.id AS a_id, a.estado, a.observacion, a.justificada,
             to_char(a.hora_entrada AT TIME ZONE '${ZONA}', 'HH24:MI') AS entrada,
             to_char(a.hora_salida AT TIME ZONE '${ZONA}', 'HH24:MI') AS salida
@@ -296,6 +310,7 @@ export async function planillaDelDia(
       tipo_remuneracion: r.tipo_remuneracion,
       fecha_ingreso: r.fecha_ingreso,
       aporta_ips: r.aporta_ips,
+      comision_pct: r.comision_pct,
     },
     asistencia: r.a_id
       ? { id: r.a_id, estado: r.estado, entrada: r.entrada, salida: r.salida, observacion: r.observacion, justificada: r.justificada }

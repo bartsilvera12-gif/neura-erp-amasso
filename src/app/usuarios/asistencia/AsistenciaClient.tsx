@@ -29,6 +29,7 @@ type Empleado = {
   tipo_remuneracion: "mensual" | "jornal";
   fecha_ingreso: string | null;
   aporta_ips: boolean;
+  comision_pct: number | null;
 };
 
 type Fila = {
@@ -67,6 +68,7 @@ type Liquidacion = {
   monto_base: number;
   descuento_ausencias: number;
   monto_extras: number;
+  monto_comision: number;
   bruto: number;
   ips_obrero: number;
   ips_patronal: number;
@@ -592,6 +594,7 @@ function ResumenMes({ esAdmin }: { esAdmin: boolean }) {
               <h2 className="text-sm font-semibold text-slate-700">Liquidación de referencia</h2>
               <p className="text-xs text-slate-500">
                 Mensual: descuenta las ausencias injustificadas. Jornal: paga los días trabajados. Extra con 50% de recargo.
+                Comisión: % sobre lo vendido en el mes como vendedor elegido en la Caja.
                 IPS 9% trabajador y 16,5% empleador. Aguinaldo: 1/12 del bruto. La revisa el contador antes de pagar.
               </p>
             </div>
@@ -600,13 +603,14 @@ function ResumenMes({ esAdmin }: { esAdmin: boolean }) {
             </button>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-sm">
+            <table className="w-full min-w-[980px] text-sm">
               <thead className="bg-slate-50/80 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
                 <tr>
                   <th className="px-3 py-2.5">Empleado</th>
                   <th className="px-3 py-2.5 text-right">Base</th>
                   <th className="px-3 py-2.5 text-right">Desc. ausencias</th>
                   <th className="px-3 py-2.5 text-right">Extras</th>
+                  <th className="px-3 py-2.5 text-right">Comisión</th>
                   <th className="px-3 py-2.5 text-right">Bruto</th>
                   <th className="px-3 py-2.5 text-right">IPS 9%</th>
                   <th className="px-3 py-2.5 text-right">Neto</th>
@@ -629,6 +633,7 @@ function ResumenMes({ esAdmin }: { esAdmin: boolean }) {
                       {f.descuento_ausencias ? `−${gs(f.descuento_ausencias)}` : "—"}
                     </td>
                     <td className={`px-3 py-2.5 text-right tabular-nums ${f.monto_extras ? "" : "text-slate-300"}`}>{f.monto_extras ? gs(f.monto_extras) : "—"}</td>
+                    <td className={`px-3 py-2.5 text-right tabular-nums ${f.monto_comision ? "" : "text-slate-300"}`}>{f.monto_comision ? gs(f.monto_comision) : "—"}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums font-semibold">{gs(f.bruto)}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">−{gs(f.ips_obrero)}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-slate-900">{gs(f.neto)}</td>
@@ -770,7 +775,7 @@ function Vacaciones({ puedeEditar }: { puedeEditar: boolean }) {
 
 const VACIO = {
   nombre: "", documento: "", cargo: "", telefono: "", horario_entrada: "", horario_salida: "",
-  salario_base: "", tipo_remuneracion: "mensual", fecha_ingreso: "", aporta_ips: "si",
+  salario_base: "", tipo_remuneracion: "mensual", fecha_ingreso: "", aporta_ips: "si", comision_pct: "",
 };
 
 function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
@@ -839,6 +844,7 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
       tipo_remuneracion: emp.tipo_remuneracion ?? "mensual",
       fecha_ingreso: emp.fecha_ingreso ?? "",
       aporta_ips: emp.aporta_ips === false ? "no" : "si",
+      comision_pct: emp.comision_pct != null ? String(emp.comision_pct) : "",
     });
   }
 
@@ -891,9 +897,11 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
                 <option value="no">No aporta</option>
               </select>
             </div>
+            {campo("comision_pct", "Comisión de ventas (%)", { inputMode: "decimal", placeholder: "Solo vendedores" })}
           </div>
           <p className="mt-2 text-xs text-slate-400">
             Con la hora de entrada, la planilla marca &ldquo;Tarde&rdquo; sola a quien llega más de 10 minutos después.
+            Con comisión cargada, el empleado aparece como vendedor en la Caja; no necesita cuenta en el sistema.
           </p>
           <div className="mt-4 flex gap-2">
             <button type="button" className={BTN_PRIMARY} disabled={guardando || !form.nombre.trim()} onClick={() => void guardar()}>
@@ -914,6 +922,8 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
           </div>
         </section>
       ) : null}
+
+      {puedeEditar ? <ImportarHistorial onListo={() => void cargar()} /> : null}
 
       {error ? <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
@@ -982,5 +992,97 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
         </p>
       </section>
     </div>
+  );
+}
+
+// ─── Importar historial ───────────────────────────────────────────────────
+
+type ResultadoImport = { filas: number; importadas: number; empleados_creados: string[]; errores: { fila: number; motivo: string }[] };
+
+const PLANTILLA =
+  "EMPLEADO;CEDULA;FECHA;ENTRADA;SALIDA;ESTADO;JUSTIFICADA;OBSERVACION\r\n" +
+  "JUAN PEREZ;4567890;01/10/2026;05:00;13:10;;;\r\n" +
+  "JUAN PEREZ;4567890;02/10/2026;;;ausente;si;Médico\r\n" +
+  "ANA GOMEZ;3456789;01/10/2026;06:20;14:00;;;\r\n";
+
+/** Importa la asistencia que hoy está en Excel. Volver a importar no duplica. */
+function ImportarHistorial({ onListo }: { onListo: () => void }) {
+  const [archivo, setArchivo] = useState<File | null>(null);
+  const [crear, setCrear] = useState(true);
+  const [res, setRes] = useState<ResultadoImport | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [subiendo, setSubiendo] = useState(false);
+
+  function bajarPlantilla() {
+    const url = URL.createObjectURL(new Blob(["\uFEFF" + PLANTILLA], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "plantilla-asistencia.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importar() {
+    if (!archivo) return;
+    setSubiendo(true);
+    setError(null);
+    setRes(null);
+    try {
+      const fd = new FormData();
+      fd.append("archivo", archivo);
+      fd.append("crear_empleados", crear ? "1" : "0");
+      const r = await apiFetch("/api/rrhh/asistencia/importar", { method: "POST", body: fd });
+      const j = (await r.json().catch(() => ({}))) as { success?: boolean; error?: string; data?: ResultadoImport };
+      if (!r.ok || !j.success) throw new Error(j.error ?? `Error ${r.status}`);
+      setRes(j.data!);
+      onListo();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubiendo(false);
+    }
+  }
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-sm font-semibold text-slate-700">Importar historial desde Excel</h2>
+      <p className="mt-1 text-xs text-slate-500">
+        Una fila por empleado y día con las columnas EMPLEADO, CEDULA, FECHA, ENTRADA, SALIDA y, si hace falta, ESTADO,
+        JUSTIFICADA y OBSERVACION. Volver a importar el mismo archivo actualiza, no duplica.{" "}
+        <button type="button" className="font-semibold text-[#3F8E91] hover:underline" onClick={bajarPlantilla}>
+          Bajar plantilla de ejemplo
+        </button>
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <input
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
+          className="text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold"
+        />
+        <label className="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" checked={crear} onChange={(e) => setCrear(e.target.checked)} />
+          Crear los empleados que no existan
+        </label>
+        <button type="button" className={BTN_PRIMARY} disabled={!archivo || subiendo} onClick={() => void importar()}>
+          {subiendo ? "Importando…" : "Importar"}
+        </button>
+      </div>
+      {error ? <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
+      {res ? (
+        <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <p>
+            <strong>{res.importadas}</strong> de {res.filas} filas importadas
+            {res.empleados_creados.length > 0 ? ` · empleados nuevos: ${res.empleados_creados.join(", ")}` : ""}.
+          </p>
+          {res.errores.length > 0 ? (
+            <ul className="mt-1 max-h-40 list-disc overflow-y-auto pl-5 text-rose-700">
+              {res.errores.slice(0, 50).map((e) => <li key={e.fila}>Fila {e.fila}: {e.motivo}</li>)}
+              {res.errores.length > 50 ? <li>… y {res.errores.length - 50} más</li> : null}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
   );
 }

@@ -97,6 +97,12 @@ export function useCajaVenta() {
    * no sobre cada producto.
    */
   const [lista, setLista] = useState<ListaPrecio>("minorista");
+  /**
+   * Vendedor de la venta (empleado de RRHH). Los vendedores de Amasso no tienen
+   * cuenta: lo elige el cajero y queda para la comisión. Se mantiene entre
+   * ventas porque suele ser el mismo durante el turno.
+   */
+  const [vendedorId, setVendedorId] = useState<string | null>(null);
   const [tipoCambio, setTipoCambio] = useState("");
   const [metodoPago, setMetodoPago] = useState<MetodoPagoVenta | null>(null);
   /**
@@ -503,6 +509,7 @@ export function useCajaVenta() {
       cliente_id: cliente?.id ?? null,
       lista_precio: lista,
       pagos: detallePagos,
+      vendedor_empleado_id: vendedorId,
     });
 
     setGuardando(false);
@@ -601,6 +608,8 @@ export function useCajaVenta() {
     cambiarIva,
     setMoneda,
     setLista,
+    vendedorId,
+    setVendedorId,
     setTipoCambio,
     setMetodoPago,
     pagosMixtos,

@@ -125,6 +125,9 @@ export async function POST(request: NextRequest) {
     // Sin lista (pantallas viejas en caché) es minorista, que es lo que era todo.
     const listaPrecio: ListaPrecio = esListaPrecio(o.lista_precio) ? o.lista_precio : "minorista";
 
+    const vendedorRaw = String(o.vendedor_empleado_id ?? "").trim();
+    const vendedorEmpleadoId = /^[0-9a-f-]{36}$/i.test(vendedorRaw) ? vendedorRaw : null;
+
     const repartoRaw = o.reparto_id;
     const repartoId =
       repartoRaw === null || repartoRaw === undefined || repartoRaw === ""
@@ -266,6 +269,7 @@ export async function POST(request: NextRequest) {
       schema,
       empresaId: auth.empresa_id,
       usuarioId: yo?.id ?? null,
+      vendedorEmpleadoId,
       pagos,
       clienteId,
       observaciones,

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import SelectorCondicionVenta from "@/shared/caja/SelectorCondicionVenta";
 import SelectorListaPrecio from "@/shared/caja/SelectorListaPrecio";
+import SelectorVendedor from "@/shared/caja/SelectorVendedor";
 import { precioSegunLista } from "@/lib/ventas/listas-precio";
 import { useMemo, useState } from "react";
 import {
@@ -239,6 +240,9 @@ function PanelCobro({ caja }: { caja: CajaVenta }) {
             Tipo de venta
           </p>
           <SelectorListaPrecio caja={caja} />
+          <div className="mt-3">
+            <SelectorVendedor caja={caja} />
+          </div>
         </div>
 
         <div className="min-h-[7rem] flex-1 overflow-y-auto px-5">

@@ -16,6 +16,9 @@ import { AsistenciaError, guardarAsistencia, resumenDelMes, validarFecha } from 
  *    recargo (hora = salario / 30 / 8; en jornal, jornal / 8). No distingue
  *    nocturnas ni feriados (100%): eso se corrige a mano.
  *  - IPS: 9% a cargo del trabajador y 16,5% del empleador, sobre el bruto.
+ *  - Comisión: % del empleado sobre el total (con IVA) de las ventas del mes
+ *    en las que el cajero lo eligió como vendedor; las anuladas no cuentan.
+ *    Es salario, así que suma al bruto y aporta IPS.
  *  - Aguinaldo: se provisiona 1/12 del bruto del mes.
  *  - Reposo: no lo paga el empleador (lo cubre IPS); se informa los días.
  *  - Vacaciones (art. 218): 12 días hábiles hasta 5 años de antigüedad, 18
@@ -44,6 +47,9 @@ export type LiquidacionEmpleado = {
   monto_base: number;
   descuento_ausencias: number;
   monto_extras: number;
+  ventas_mes: number;
+  comision_pct: number | null;
+  monto_comision: number;
   bruto: number;
   ips_obrero: number;
   ips_patronal: number;
@@ -65,12 +71,34 @@ export async function liquidacionDelMes(
   const tE = quoteSchemaTable(assertAllowedChatDataSchema(schemaRaw), "empleados");
   const emp = await pool.query<{
     id: string; documento: string | null; salario_base: number | null; tipo_remuneracion: "mensual" | "jornal"; aporta_ips: boolean;
+    comision_pct: number | null;
   }>(
-    `SELECT id, documento, salario_base::float8 AS salario_base, tipo_remuneracion, aporta_ips
+    `SELECT id, documento, salario_base::float8 AS salario_base, tipo_remuneracion, aporta_ips,
+            comision_pct::float8 AS comision_pct
        FROM ${tE} WHERE empresa_id = $1::uuid`,
     [empresaId]
   );
   const porId = new Map(emp.rows.map((e) => [e.id, e]));
+
+  // Ventas del mes por vendedor (script 13). Sin la columna, no hay comisiones.
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  const ventasPorVendedor = new Map<string, number>();
+  const hayCol = await pool.query(
+    `SELECT 1 FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'ventas' AND column_name = 'vendedor_empleado_id'`,
+    [schema]
+  );
+  if (hayCol.rows.length > 0) {
+    const tV = quoteSchemaTable(schema, "ventas");
+    const v = await pool.query<{ vendedor: string; total: string }>(
+      `SELECT vendedor_empleado_id AS vendedor, sum(total)::text AS total FROM ${tV}
+        WHERE empresa_id = $1::uuid AND vendedor_empleado_id IS NOT NULL
+          AND COALESCE(estado, '') NOT IN ('anulada', 'anulado')
+          AND fecha >= ($2 || '-01')::date AND fecha < (($2 || '-01')::date + interval '1 month')
+        GROUP BY 1`,
+      [empresaId, mes]
+    );
+    for (const r of v.rows) ventasPorVendedor.set(r.vendedor, Number(r.total) || 0);
+  }
 
   return resumen.map((r) => {
     const e = porId.get(r.empleado_id);
@@ -92,7 +120,10 @@ export async function liquidacionDelMes(
       }
     }
     const extras = horasExtra * valorHora * (1 + RECARGO_EXTRA);
-    const bruto = Math.max(0, montoBase - descuento + extras);
+    const ventasMes = ventasPorVendedor.get(r.empleado_id) ?? 0;
+    const pct = e?.comision_pct ?? null;
+    const comision = pct ? (ventasMes * pct) / 100 : 0;
+    const bruto = Math.max(0, montoBase - descuento + extras + comision);
     const ipsObrero = e?.aporta_ips === false ? 0 : bruto * IPS_OBRERO;
     return {
       empleado_id: r.empleado_id,
@@ -112,6 +143,9 @@ export async function liquidacionDelMes(
       monto_base: red(montoBase),
       descuento_ausencias: red(descuento),
       monto_extras: red(extras),
+      ventas_mes: red(ventasMes),
+      comision_pct: pct,
+      monto_comision: red(comision),
       bruto: red(bruto),
       ips_obrero: red(ipsObrero),
       ips_patronal: e?.aporta_ips === false ? 0 : red(bruto * IPS_PATRONAL),
@@ -141,6 +175,9 @@ export function liquidacionCsv(mes: string, filas: LiquidacionEmpleado[]): strin
     ["Monto base", (f) => f.monto_base],
     ["Descuento ausencias", (f) => f.descuento_ausencias],
     ["Horas extra (Gs.)", (f) => f.monto_extras],
+    ["Ventas del mes", (f) => f.ventas_mes],
+    ["Comisión %", (f) => f.comision_pct],
+    ["Comisión (Gs.)", (f) => f.monto_comision],
     ["Bruto", (f) => f.bruto],
     ["IPS trabajador 9%", (f) => f.ips_obrero],
     ["IPS empleador 16,5%", (f) => f.ips_patronal],

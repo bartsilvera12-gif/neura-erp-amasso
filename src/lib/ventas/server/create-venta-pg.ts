@@ -30,6 +30,8 @@ export interface CreateVentaPgParams {
   cajaId: string | null;
   /** Quién vendió (`usuarios.id` del schema). Se guarda en `ventas.created_by`. */
   usuarioId?: string | null;
+  /** Vendedor de RRHH elegido en la Caja (script 13). Base de la comisión. */
+  vendedorEmpleadoId?: string | null;
   /**
    * Reparto del cobro cuando `metodoPago` es `mixto`: una entrada por medio.
    * Se guarda en `ventas_pagos_detalle` y genera un movimiento de caja por
@@ -216,7 +218,7 @@ export async function createVentaTransaccionalPg(
       SELECT column_name AS columna
         FROM information_schema.columns
        WHERE table_schema = $1 AND table_name = 'ventas'
-         AND column_name IN ('metodo_pago', 'caja_id', 'reparto_id', 'lista_precio', 'created_by')
+         AND column_name IN ('metodo_pago', 'caja_id', 'reparto_id', 'lista_precio', 'created_by', 'vendedor_empleado_id')
       `,
       [params.schema]
     );
@@ -246,6 +248,16 @@ export async function createVentaTransaccionalPg(
     if (columnas.has("created_by")) {
       extraCols.push("created_by");
       extraVals.push(params.usuarioId ?? null);
+    }
+    if (columnas.has("vendedor_empleado_id") && params.vendedorEmpleadoId) {
+      const empT = quoteSchemaTable(params.schema, "empleados");
+      const emp = await client.query<{ id: string }>(
+        `SELECT id FROM ${empT} WHERE id = $1::uuid AND empresa_id = $2::uuid AND activo`,
+        [params.vendedorEmpleadoId, params.empresaId]
+      );
+      if (!emp.rows[0]) throw new Error("El vendedor elegido no existe o está dado de baja.");
+      extraCols.push("vendedor_empleado_id");
+      extraVals.push(params.vendedorEmpleadoId);
     }
     // Los placeholders siguen después de los 12 fijos del INSERT.
     const extraPlaceholders = extraCols.map((_, i) => `$${13 + i}`);

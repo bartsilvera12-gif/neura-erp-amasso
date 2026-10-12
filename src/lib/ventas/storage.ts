@@ -56,6 +56,7 @@ export async function saveVenta(
         reparto_id: datos.reparto_id ?? null,
         lista_precio: datos.lista_precio ?? "minorista",
         cliente_id: datos.cliente_id ?? null,
+        vendedor_empleado_id: datos.vendedor_empleado_id ?? null,
         observaciones: null,
       }),
     });

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import SelectorCondicionVenta from "@/shared/caja/SelectorCondicionVenta";
 import SelectorListaPrecio from "@/shared/caja/SelectorListaPrecio";
+import SelectorVendedor from "@/shared/caja/SelectorVendedor";
 import { precioSegunLista } from "@/lib/ventas/listas-precio";
 import { useMemo, useState } from "react";
 import {
@@ -410,8 +411,9 @@ function PasoProductos({ caja }: { caja: CajaVenta }) {
   return (
     <div className="pt-4">
       {/* Antes de buscar: la lista decide el precio que se ve en cada producto. */}
-      <div className="mb-3">
+      <div className="mb-3 space-y-3">
         <SelectorListaPrecio caja={caja} />
+        <SelectorVendedor caja={caja} />
       </div>
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />

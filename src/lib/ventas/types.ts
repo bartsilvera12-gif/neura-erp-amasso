@@ -62,6 +62,11 @@ export interface LineaVenta {
 export interface Venta {
   /** UUID en base de datos (antes del bloque DB-first era numérico local). */
   id:             string;
+  /**
+   * Vendedor de RRHH (empleado, no usuario): los vendedores de Amasso no tienen
+   * cuenta en el sistema, así que lo elige el cajero. Base de la comisión.
+   */
+  vendedor_empleado_id?: string | null;
   numero_control: string;   // VTA-000001, VTA-000002, …
 
   items: LineaVenta[];       // 1 o más productos

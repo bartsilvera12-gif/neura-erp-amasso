@@ -83,11 +83,11 @@ export async function GET(request: NextRequest) {
     const colsQ = await queryWithRetry<{ c: string }>(pool,
       `SELECT column_name AS c FROM information_schema.columns
         WHERE table_schema = $1 AND table_name = 'ventas'
-          AND column_name IN ('metodo_pago', 'cliente_id', 'reparto_id', 'lista_precio', 'created_by')`,
+          AND column_name IN ('metodo_pago', 'cliente_id', 'reparto_id', 'lista_precio', 'created_by', 'vendedor_empleado_id')`,
       [schema]
     );
     const opc = new Set(colsQ.rows.map((r) => r.c));
-    const extra = ["metodo_pago", "cliente_id", "reparto_id", "lista_precio", "created_by"]
+    const extra = ["metodo_pago", "cliente_id", "reparto_id", "lista_precio", "created_by", "vendedor_empleado_id"]
       .map((c) => (opc.has(c) ? c : `NULL::text AS ${c}`))
       .join(", ");
 
@@ -212,6 +212,28 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Vendedor elegido en la Caja (empleado de RRHH, sin cuenta): si está, es
+    // el que se muestra; si no, el usuario que registró la venta.
+    const nombreEmpleado = new Map<string, string>();
+    const idsEmpleado = [
+      ...new Set(
+        ventasQ.rows
+          .map((r) => (r as unknown as { vendedor_empleado_id?: string | null }).vendedor_empleado_id)
+          .filter((x): x is string => typeof x === "string" && x.length > 0)
+      ),
+    ];
+    if (idsEmpleado.length > 0) {
+      try {
+        const q = await queryWithRetry<{ id: string; nombre: string }>(pool,
+          `SELECT id, nombre FROM ${quoteSchemaTable(schema, "empleados")} WHERE id = ANY($1::uuid[])`,
+          [idsEmpleado]
+        );
+        for (const r of q.rows) nombreEmpleado.set(r.id, r.nombre);
+      } catch (e) {
+        console.warn("[/api/ventas GET] empleados:", e instanceof Error ? e.message : e);
+      }
+    }
+
     // Reparto del cobro mixto por venta, para que el detalle y la reimpresión
     // puedan desglosarlo y no digan solo "Mixto".
     const pagosPorVenta = new Map<string, { metodo_pago: string; monto: number }[]>();
@@ -286,9 +308,11 @@ export async function GET(request: NextRequest) {
         reparto_id: r.reparto_id ?? null,
         reparto_etiqueta: r.reparto_id ? etiquetaReparto.get(r.reparto_id) ?? null : null,
         pagos: pagosPorVenta.get(r.id) ?? undefined,
-        vendedor_nombre: (r as unknown as { created_by?: string | null }).created_by
-          ? nombreVendedor.get((r as unknown as { created_by: string }).created_by) ?? null
-          : null,
+        vendedor_nombre:
+          nombreEmpleado.get((r as unknown as { vendedor_empleado_id?: string }).vendedor_empleado_id ?? "") ??
+          ((r as unknown as { created_by?: string | null }).created_by
+            ? nombreVendedor.get((r as unknown as { created_by: string }).created_by) ?? null
+            : null),
         lista_precio: r.lista_precio === "mayorista" ? "mayorista" : "minorista",
       };
     });
