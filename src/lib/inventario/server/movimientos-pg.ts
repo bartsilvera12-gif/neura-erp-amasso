@@ -55,6 +55,8 @@ export interface CrearMovimientoParams {
   ubicacionId?: string | null;
   usuarioId?: string | null;
   usuarioNombre?: string | null;
+  /** Por qué se ajustó (obligatorio en los ajustes manuales). */
+  motivo?: string | null;
 }
 
 export interface CrearMovimientoResult {
@@ -211,9 +213,9 @@ export async function crearMovimientoPg(
       `INSERT INTO ${tM} (
          empresa_id, producto_id, producto_nombre, producto_sku,
          tipo, cantidad, costo_unitario, origen, referencia, fecha,
-         ubicacion_id, created_by, usuario_nombre
+         ubicacion_id, created_by, usuario_nombre, motivo
        ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::numeric, $7::numeric, $8, $9,
-                 now(), $10::uuid, $11::uuid, $12)
+                 now(), $10::uuid, $11::uuid, $12, $13)
        RETURNING id`,
       [
         params.empresaId,
@@ -228,6 +230,7 @@ export async function crearMovimientoPg(
         ubicacion.id,
         params.usuarioId ?? null,
         params.usuarioNombre ?? null,
+        params.motivo?.trim() ? params.motivo.trim().slice(0, 300) : null,
       ]
     );
 

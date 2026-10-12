@@ -1,3 +1,4 @@
+import { esClaseProducto, type ClaseProducto } from "@/lib/inventario/clases";
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
@@ -245,7 +246,21 @@ export async function GET(request: NextRequest) {
     // stock de la empresa dejaba al repartidor vendiendo lo que está en el
     // depósito, con el camión descargado, y eso no hay control de mercadería que
     // lo explique después.
-    const ubicacionId = camion.ubicacion_id;
+    // Mostrador: si hay un Punto de venta (ubicación tipo `salon`), la caja
+    // ofrece SOLO lo que hay ahí. Lo de Fábrica no se vende hasta transferirlo.
+    let pdvId: string | null = null;
+    if (paraVenta && !camion.existe) {
+      const pdv = await queryWithRetry<{ id: string }>(
+        pool,
+        `SELECT id FROM ${quoteSchemaTable(schema, "inventario_ubicaciones")}
+          WHERE empresa_id = $1::uuid AND activo = true AND lower(btrim(tipo)) = 'salon'
+          ORDER BY created_at LIMIT 1`,
+        [empresaId]
+      ).catch(() => ({ rows: [] as { id: string }[] }));
+      pdvId = pdv.rows[0]?.id ?? null;
+    }
+
+    const ubicacionId = camion.ubicacion_id ?? pdvId;
     const camionSinUbicacion = camion.existe && camion.ubicacion_id === null;
 
     // De dónde sale la lista. Viaja en la respuesta porque hasta ahora cada
@@ -253,7 +268,9 @@ export async function GET(request: NextRequest) {
     // camión, o al revés.
     const origen = camionSinUbicacion
       ? { tipo: "camion_sin_ubicacion" as const, camion: camion.camion }
-      : ubicacionId
+      : pdvId && !camion.existe
+        ? { tipo: "salon" as const, camion: null }
+        : ubicacionId
         ? { tipo: "camion" as const, camion: camion.camion }
         : paraVenta
           ? {
@@ -304,7 +321,7 @@ export async function GET(request: NextRequest) {
              p.created_at, p.updated_at, p.codigo_barras, p.codigo_barras_interno,
              p.imagen_path, p.imagen_url, p.categoria_principal_id,
              p.ubicacion_principal_id, p.proveedor_principal_id, ${ivaP},
-             p.es_insumo, p.es_vendible
+             p.es_insumo, p.es_vendible, p.clase_producto
         FROM ${t} p
         LEFT JOIN en_camiones ec ON ec.producto_id = p.id
        WHERE p.empresa_id = $1::uuid AND p.activo = true ${soloVendibles}
@@ -328,7 +345,7 @@ export async function GET(request: NextRequest) {
                   unidad_medida, metodo_valuacion, activo, created_at, updated_at,
                   codigo_barras, codigo_barras_interno, imagen_path, imagen_url,
                   categoria_principal_id, ubicacion_principal_id, proveedor_principal_id, ${ivaSinAlias},
-                  es_insumo, es_vendible
+                  es_insumo, es_vendible, clase_producto
              FROM ${t} p
             WHERE empresa_id = $1::uuid AND activo = true ${soloVendibles}
             ORDER BY nombre`
@@ -338,7 +355,7 @@ export async function GET(request: NextRequest) {
                   p.created_at, p.updated_at, p.codigo_barras, p.codigo_barras_interno,
                   p.imagen_path, p.imagen_url, p.categoria_principal_id,
                   p.ubicacion_principal_id, p.proveedor_principal_id, ${ivaP},
-                  p.es_insumo, p.es_vendible
+                  p.es_insumo, p.es_vendible, p.clase_producto
              FROM ${t} p
              JOIN ${quoteSchemaTable(schema, "inventario_stock_ubicacion")} su
                ON su.producto_id = p.id AND su.ubicacion_id = $2::uuid
@@ -441,7 +458,13 @@ export async function POST(request: NextRequest) {
     const categoriaPrincipalId = body.categoria_principal_id ? String(body.categoria_principal_id) : null;
     const ubicacionPrincipalId = body.ubicacion_principal_id ? String(body.ubicacion_principal_id) : null;
     const proveedorPrincipalId = body.proveedor_principal_id ? String(body.proveedor_principal_id) : null;
-    const esMateriaPrima = body.es_materia_prima === true;
+    // Clase del producto. `es_materia_prima` queda por compatibilidad con
+    // pantallas viejas que mandaban solo ese booleano.
+    const claseProducto: ClaseProducto = esClaseProducto(body.clase_producto)
+      ? body.clase_producto
+      : body.es_materia_prima === true
+        ? "materia_prima"
+        : "reventa";
 
     if (categoriaPrincipalId && !(await existsInTenant(schema, empresaId, "categorias_productos", categoriaPrincipalId))) {
       return NextResponse.json(errorResponse("La categoría seleccionada no existe."), { status: 400 });
@@ -468,7 +491,7 @@ export async function POST(request: NextRequest) {
         categoria_principal_id: categoriaPrincipalId,
         ubicacion_principal_id: ubicacionPrincipalId,
         proveedor_principal_id: proveedorPrincipalId,
-        es_materia_prima: esMateriaPrima,
+        clase_producto: claseProducto,
       });
 
       // Inventario inicial (mismo schema, via PG directo).

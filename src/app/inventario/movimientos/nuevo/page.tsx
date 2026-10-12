@@ -23,8 +23,9 @@ export default function NuevoMovimientoPage() {
     tipo: "ENTRADA" as TipoMovimiento,
     cantidad: "",
     costo_unitario: "",
-    origen: "compra" as OrigenMovimiento,
+    origen: "ajuste_manual" as OrigenMovimiento,
     ubicacion_id: "",
+    motivo: "",
   });
 
   useEffect(() => {
@@ -67,7 +68,7 @@ export default function NuevoMovimientoPage() {
   function handleTipoChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const tipo = e.target.value as TipoMovimiento;
     const origenSugerido: OrigenMovimiento =
-      tipo === "ENTRADA" ? "compra" : tipo === "SALIDA" ? "venta" : "ajuste_manual";
+      "ajuste_manual";
     setForm((prev) => ({ ...prev, tipo, origen: origenSugerido }));
   }
 
@@ -103,7 +104,8 @@ export default function NuevoMovimientoPage() {
           tipo: form.tipo,
           cantidad: cantidadNum,
           costo_unitario: parseFloat(form.costo_unitario) || 0,
-          origen: form.origen,
+          origen: "ajuste_manual",
+          motivo: form.motivo,
           ubicacion_id: form.ubicacion_id || null,
         }),
       });
@@ -130,7 +132,7 @@ export default function NuevoMovimientoPage() {
     <div className="space-y-8">
 
       <div>
-        <h1 className="text-3xl font-bold text-gray-800">Nuevo movimiento</h1>
+        <h1 className="text-3xl font-bold text-gray-800">Ajuste de inventario</h1>
         <p className="text-gray-600">Registra una entrada, salida o ajuste de stock</p>
       </div>
 
@@ -173,17 +175,19 @@ export default function NuevoMovimientoPage() {
             </div>
 
             <div>
-              <label className={labelClass}>Origen</label>
-              <select
-                name="origen"
-                value={form.origen}
-                onChange={handleChange}
+              <label className={labelClass}>Motivo del ajuste *</label>
+              <input
+                name="motivo"
+                value={form.motivo}
+                onChange={(e) => setForm((prev) => ({ ...prev, motivo: e.target.value }))}
+                placeholder="Ej: rotura, vencido, error de carga"
                 className={inputClass}
-              >
-                <option value="compra">Compra</option>
-                <option value="venta">Venta</option>
-                <option value="ajuste_manual">Ajuste manual</option>
-              </select>
+                maxLength={300}
+                required
+              />
+              <p className="mt-1 text-[11px] text-slate-400">
+                Solo administradores. Las entradas normales van por Compras o Producción.
+              </p>
             </div>
           </div>
 

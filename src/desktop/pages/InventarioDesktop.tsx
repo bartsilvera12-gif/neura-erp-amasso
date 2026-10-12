@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { deleteProducto, getProductos } from "@/lib/inventario/storage";
-import { esMateriaPrima, type Producto } from "@/lib/inventario/types";
+import { claseDe, esMateriaPrima, type Producto } from "@/lib/inventario/types";
+import { CLASES_PRODUCTO, CLASE_INFO, type ClaseProducto } from "@/lib/inventario/clases";
 import { Pencil, Trash2 } from "lucide-react";
 import MiniaturaProducto from "@/components/inventario/MiniaturaProducto";
 import { formatCantidad } from "@/lib/inventario/unidades";
@@ -54,11 +55,12 @@ export default function InventarioPage() {
   // Busqueda unica global + paginado
   const [query, setQuery] = useState("");
   /**
-   * Inventario separado: lo que se vende y la materia prima de producción
-   * (harina, levadura…) no se mezclan en la misma lista.
+   * Filtro por clase de producto (materia prima, insumos, intermedios,
+   * terminados, reventa, mermas). "todas" muestra todo.
    */
-  const [vista, setVista] = useState<"venta" | "materia_prima">("venta");
-  const cantMateriaPrima = todos.filter(esMateriaPrima).length;
+  const [vista, setVista] = useState<ClaseProducto | "todas">("todas");
+  const porClase = new Map<ClaseProducto, number>();
+  for (const p of todos) porClase.set(claseDe(p), (porClase.get(claseDe(p)) ?? 0) + 1);
   const [pageSize, setPageSize] = useState<25 | 50 | 100 | "all">(25);
 
   useEffect(() => {
@@ -87,7 +89,7 @@ export default function InventarioPage() {
   // Filtro unico: matchea contra cualquier dato visible del producto.
   // El query se separa por palabras y todas deben matchear (AND), case-insensitive.
   const filtradosTodos = todos.filter((p) => {
-    if ((vista === "materia_prima") !== esMateriaPrima(p)) return false;
+    if (vista !== "todas" && claseDe(p) !== vista) return false;
     const q = query.trim().toLowerCase();
     if (q === "") return true;
     const u = p.ubicacion_principal_id ? ubicacionById.get(p.ubicacion_principal_id) : null;
@@ -168,11 +170,11 @@ export default function InventarioPage() {
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
 
         <div className="mb-5 flex flex-wrap items-center gap-3">
-          <div role="tablist" aria-label="Tipo de inventario" className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+          <div role="tablist" aria-label="Clase de producto" className="flex w-full flex-wrap gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
             {([
-              { id: "venta", label: "Productos de venta", n: todos.length - cantMateriaPrima },
-              { id: "materia_prima", label: "Materia prima", n: cantMateriaPrima },
-            ] as const).map((t) => (
+              { id: "todas" as const, label: "Todos", n: todos.length },
+              ...CLASES_PRODUCTO.map((c) => ({ id: c, label: CLASE_INFO[c].corta, n: porClase.get(c) ?? 0 })),
+            ]).map((t) => (
               <button
                 key={t.id}
                 type="button"
@@ -189,10 +191,10 @@ export default function InventarioPage() {
             ))}
           </div>
           <Link
-            href={vista === "materia_prima" ? "/inventario/nuevo?tipo=materia_prima" : "/inventario/nuevo"}
+            href={vista === "todas" ? "/inventario/nuevo" : `/inventario/nuevo?clase=${vista}`}
             className="inline-flex items-center gap-1.5 rounded-xl bg-[#4FAEB2] px-3.5 py-2 text-xs font-semibold text-white shadow-sm shadow-[#4FAEB2]/25 transition-colors hover:bg-[#3F8E91]"
           >
-            {vista === "materia_prima" ? "+ Nueva materia prima" : "+ Nuevo producto"}
+            {vista === "todas" ? "+ Nuevo producto" : `+ Nuevo: ${CLASE_INFO[vista].etiqueta}`}
           </Link>
           <div className="relative min-w-[16rem] flex-1">
             <svg
@@ -289,8 +291,8 @@ export default function InventarioPage() {
                   <td colSpan={10} className="py-12 text-center text-sm text-slate-400">
                     {query.trim()
                       ? `Ningún producto coincide con “${query.trim()}”.`
-                      : vista === "materia_prima"
-                        ? "Todavía no hay materia prima cargada. Usá “+ Nueva materia prima”, o editá un producto y marcalo como materia prima."
+                      : vista !== "todas"
+                        ? `No hay productos de la clase “${CLASE_INFO[vista].etiqueta}”. Cargá uno nuevo, o editá un producto existente y cambiale la clase.`
                         : "Todavía no hay productos cargados."}
                   </td>
                 </tr>
@@ -306,7 +308,12 @@ export default function InventarioPage() {
                     <td className="py-3 pr-4 font-medium text-gray-800">
                       <div className="flex items-center gap-3">
                         <MiniaturaProducto producto={p} size="sm" />
-                        <span>{p.nombre}</span>
+                        <span>
+                          {p.nombre}
+                          <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+                            {CLASE_INFO[claseDe(p)].corta}
+                          </span>
+                        </span>
                       </div>
                     </td>
                     <td className="py-4 pr-4 text-gray-500 font-mono">{p.sku}</td>

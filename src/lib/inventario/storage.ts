@@ -1,4 +1,5 @@
 import { getCurrentUser } from "@/lib/auth";
+import type { ClaseProducto } from "./clases";
 import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
 import type {
   Producto,
@@ -33,6 +34,7 @@ interface ProductoRow {
   tipo_iva?: string | null;
   es_insumo?: boolean | null;
   es_vendible?: boolean | null;
+  clase_producto?: ClaseProducto | null;
 }
 
 interface MovimientoRow {
@@ -51,6 +53,7 @@ interface MovimientoRow {
   updated_at: string;
   created_by?: string | null;
   usuario_nombre?: string | null;
+  motivo?: string | null;
 }
 
 // ─── Mapeo fila → tipo ────────────────────────────────────────────────────────
@@ -76,6 +79,7 @@ function rowToProducto(row: ProductoRow): Producto {
     tipo_iva: row.tipo_iva ?? null,
     es_insumo: row.es_insumo === true,
     es_vendible: row.es_vendible !== false,
+    clase_producto: row.clase_producto ?? undefined,
   };
 }
 
@@ -93,6 +97,7 @@ function rowToMovimiento(row: MovimientoRow): MovimientoInventario {
     fecha: row.fecha,
     created_by: row.created_by ?? null,
     usuario_nombre: row.usuario_nombre ?? null,
+    motivo: row.motivo ?? null,
   };
 }
 
@@ -247,7 +252,7 @@ export async function saveProducto(
     categoria_principal_id: datos.categoria_principal_id ?? null,
     ubicacion_principal_id: datos.ubicacion_principal_id ?? null,
     proveedor_principal_id: datos.proveedor_principal_id ?? null,
-    es_materia_prima: datos.es_vendible === false,
+    clase_producto: datos.clase_producto ?? (datos.es_vendible === false ? "materia_prima" : "reventa"),
   };
 
   const res = await fetch("/api/productos", {
@@ -322,7 +327,8 @@ export async function updateProducto(
   if (datos.categoria_principal_id !== undefined) body.categoria_principal_id = datos.categoria_principal_id ?? null;
   if (datos.ubicacion_principal_id !== undefined) body.ubicacion_principal_id = datos.ubicacion_principal_id ?? null;
   if (datos.proveedor_principal_id !== undefined) body.proveedor_principal_id = datos.proveedor_principal_id ?? null;
-  if (datos.es_vendible !== undefined) body.es_materia_prima = datos.es_vendible === false;
+  if (datos.clase_producto !== undefined) body.clase_producto = datos.clase_producto;
+  else if (datos.es_vendible !== undefined) body.es_materia_prima = datos.es_vendible === false;
 
   const res = await fetch(`/api/productos/${encodeURIComponent(id)}`, {
     method: "PATCH",

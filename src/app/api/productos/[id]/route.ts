@@ -1,3 +1,4 @@
+import { esClaseProducto } from "@/lib/inventario/clases";
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantSupabaseFromAuth, getTenantSupabaseFromAuthWithRol } from "@/lib/supabase/tenant-api";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
@@ -83,7 +84,8 @@ export async function PATCH(
 
     const patch: Parameters<typeof updateProductoPg>[3] = {};
     if (body.nombre !== undefined) patch.nombre = normalizeUpperText(body.nombre);
-    if (typeof body.es_materia_prima === "boolean") patch.es_materia_prima = body.es_materia_prima;
+    if (esClaseProducto(body.clase_producto)) patch.clase_producto = body.clase_producto;
+    else if (typeof body.es_materia_prima === "boolean") patch.clase_producto = body.es_materia_prima ? "materia_prima" : "reventa";
     if (body.sku !== undefined) patch.sku = normalizeUpperText(body.sku);
     if (body.costo_promedio !== undefined) patch.costo_promedio = Number(body.costo_promedio) || 0;
     if (body.precio_venta !== undefined) patch.precio_venta = Number(body.precio_venta) || 0;

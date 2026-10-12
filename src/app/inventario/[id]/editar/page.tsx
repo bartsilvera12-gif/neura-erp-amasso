@@ -3,8 +3,10 @@
 import Link from "next/link";
 import SelectorUnidad from "@/components/inventario/SelectorUnidad";
 import { useEffect, useState } from "react";
+import { CLASES_PRODUCTO, CLASE_INFO, claseVendible, esClaseProducto, type ClaseProducto } from "@/lib/inventario/clases";
 import { useRouter, useParams } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
+import { claseDe } from "@/lib/inventario/types";
 import { getProducto, productoExiste, updateProducto } from "@/lib/inventario/storage";
 import ProductImageUploader from "@/components/inventario/ProductImageUploader";
 import SelectFromList from "@/components/inventario/SelectFromList";
@@ -39,8 +41,9 @@ export default function EditarProductoPage() {
   const [imagenUrl, setImagenUrl] = useState<string | null>(null);
   const [codigoOriginal, setCodigoOriginal] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  /** Materia prima: no se vende, no lleva precio y no aparece en la caja. */
-  const [esMateriaPrima, setEsMateriaPrima] = useState(false);
+  /** Clase del producto; las que no se venden no llevan precio. */
+  const [clase, setClase] = useState<ClaseProducto>("reventa");
+  const esMateriaPrima = !claseVendible(clase);
   const [generandoCodigo, setGenerandoCodigo] = useState(false);
 
   // Relaciones
@@ -145,7 +148,7 @@ export default function EditarProductoPage() {
       setCategoriaId(p.categoria_principal_id ?? null);
       setUbicacionId(p.ubicacion_principal_id ?? null);
       setProveedorId(p.proveedor_principal_id ?? null);
-      setEsMateriaPrima(p.es_vendible === false);
+      setClase(claseDe(p));
     }).finally(() => {
       if (!cancelled) setCargando(false);
     });
@@ -258,8 +261,7 @@ export default function EditarProductoPage() {
         categoria_principal_id: categoriaId,
         ubicacion_principal_id: ubicacionId,
         proveedor_principal_id: proveedorId,
-        es_insumo: esMateriaPrima,
-        es_vendible: !esMateriaPrima,
+        clase_producto: clase,
       };
       if (cambioCodigo) {
         updatePayload.codigo_barras = codigoIngresado || null;
@@ -328,24 +330,26 @@ export default function EditarProductoPage() {
 
           <div>
             <label className={labelClass}>Tipo</label>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {[
-                { mp: false, titulo: "Producto de venta", detalle: "Se vende en la caja y en los camiones." },
-                { mp: true, titulo: "Materia prima", detalle: "Para producción. No se vende ni aparece en la caja." },
-              ].map((o) => (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {CLASES_PRODUCTO.map((c) => (
                 <button
-                  key={o.titulo}
+                  key={c}
                   type="button"
-                  onClick={() => setEsMateriaPrima(o.mp)}
-                  aria-pressed={esMateriaPrima === o.mp}
-                  className={`rounded-lg border px-4 py-3 text-left transition-colors ${
-                    esMateriaPrima === o.mp
+                  onClick={() => setClase(c)}
+                  aria-pressed={clase === c}
+                  className={`rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
+                    clase === c
                       ? "border-[#4FAEB2] bg-[#4FAEB2]/10 ring-2 ring-[#4FAEB2]/30"
                       : "border-slate-200 bg-white hover:border-[#4FAEB2]/50"
                   }`}
                 >
-                  <span className="block text-sm font-semibold text-slate-800">{o.titulo}</span>
-                  <span className="mt-0.5 block text-xs text-slate-500">{o.detalle}</span>
+                  <span className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-800">
+                    {CLASE_INFO[c].etiqueta}
+                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${claseVendible(c) ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                      {claseVendible(c) ? "Se vende" : "No se vende"}
+                    </span>
+                  </span>
+                  <span className="mt-0.5 block text-xs text-slate-500">{CLASE_INFO[c].detalle}</span>
                 </button>
               ))}
             </div>

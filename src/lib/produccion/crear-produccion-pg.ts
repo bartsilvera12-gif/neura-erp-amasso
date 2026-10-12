@@ -83,6 +83,19 @@ export interface CrearProduccionParams {
   permitirSinStock?: boolean;
   usuarioId?: string | null;
   usuarioNombre?: string | null;
+  /**
+   * Orden de producción que se finaliza. Si viene, se actualiza esa fila de
+   * `producciones` (que estaba planificada o en proceso) en vez de crear otra.
+   */
+  ordenId?: string | null;
+  /**
+   * Lo que realmente salió. `cantidadFabricar` es lo planificado y de ahí sale
+   * el consumo de materia prima; esto es lo que entra al stock. Por defecto,
+   * igual a lo planificado.
+   */
+  cantidadObtenida?: number | null;
+  /** Merma registrada al finalizar (va a la orden; su destino se registra aparte). */
+  mermaCantidad?: number | null;
 }
 
 /** Un insumo requerido por la fabricación, ya convertido a la unidad del insumo. */
@@ -116,6 +129,8 @@ export interface ProduccionPreview {
 
 export interface CrearProduccionResult {
   produccion_id: string;
+  lote: string;
+  fecha_vencimiento: string | null;
   producto_id: string;
   producto_nombre: string;
   cantidad_fabricada: number;
@@ -138,6 +153,9 @@ type PgClient = {
 
 type RecetaInfo = {
   recetaId: string;
+  /** Merma esperada de la formulación, en fracción (0.05 = 5%). */
+  mermaEsperada: number;
+  vidaUtilDias: number | null;
   productoId: string;
   productoNombre: string;
   productoSku: string;
@@ -262,8 +280,11 @@ async function cargarPlan(
     rendimiento_cantidad: string | number | null;
     rendimiento_unidad: string | null;
     activa: boolean | null;
+    merma_esperada_pct: string | number | null;
+    vida_util_dias: number | null;
   }>(
-    `SELECT id, producto_id, rendimiento_cantidad, rendimiento_unidad, activa
+    `SELECT id, producto_id, rendimiento_cantidad, rendimiento_unidad, activa,
+            merma_esperada_pct, vida_util_dias
        FROM ${tR} WHERE id = $1::uuid AND empresa_id = $2::uuid`,
     [params.recetaId, params.empresaId]
   );
@@ -319,8 +340,11 @@ async function cargarPlan(
   }
 
   const rendimiento = num(rec.rendimiento_cantidad);
+  const mermaEsperada = Math.min(0.95, Math.max(0, num(rec.merma_esperada_pct)));
   const receta: RecetaInfo = {
     recetaId: rec.id,
+    mermaEsperada,
+    vidaUtilDias: rec.vida_util_dias ?? null,
     productoId: term.id,
     productoNombre: term.nombre,
     productoSku: term.sku ?? "",
@@ -330,11 +354,22 @@ async function cargarPlan(
     unidadRendimiento: rec.rendimiento_unidad ?? null,
   };
 
+  // Disponibilidad en el depósito donde se produce, no en el total de la
+  // empresa: la materia prima que está en el Punto de venta no sirve para
+  // producir en Fábrica (requerimiento de Amasso: se descuenta del depósito).
+  const tSU = quoteSchemaTable(schema, "inventario_stock_ubicacion");
+  const enDeposito = await client.query<{ producto_id: string; stock_actual: string }>(
+    `SELECT producto_id, stock_actual::text FROM ${tSU}
+      WHERE empresa_id = $1::uuid AND ubicacion_id = $2::uuid AND producto_id = ANY($3::uuid[])`,
+    [params.empresaId, ubicacion.id, insumoIds]
+  );
+  const stockDeposito = new Map(enDeposito.rows.map((r) => [r.producto_id, num(r.stock_actual)]));
+
   const insumoMeta = new Map<string, InsumoMeta>();
   for (const id of insumoIds) {
     const p = porId.get(id)!;
     insumoMeta.set(id, {
-      stock: num(p.stock_actual),
+      stock: stockDeposito.get(id) ?? 0,
       costo: num(p.costo_promedio),
       nombre: p.nombre,
       sku: p.sku ?? "",
@@ -343,7 +378,10 @@ async function cargarPlan(
   }
 
   // 4) Requerimiento por insumo, convertido a la unidad del insumo:
-  //    consumo = cantidadFabricar * cantidad_item_conv * (1 + merma) / rendimiento
+  //    consumo = cantidadFabricar * cantidad_item_conv * (1 + merma_item)
+  //              / (rendimiento * (1 - merma_esperada))
+  //    La merma esperada de la formulación agranda el lote: para que salgan
+  //    10 kg con 5% de merma hay que amasar para 10 / 0,95.
   const insumoNeed = new Map<string, number>();
   const insumosIncompatibles: string[] = [];
   for (const it of itemsQ.rows) {
@@ -360,7 +398,7 @@ async function cargarPlan(
       if (!insumosIncompatibles.includes(meta.nombre)) insumosIncompatibles.push(meta.nombre);
       continue;
     }
-    const consumo = (cantidad * cantConv * (1 + merma)) / receta.rendimiento;
+    const consumo = (cantidad * cantConv * (1 + merma)) / (receta.rendimiento * (1 - receta.mermaEsperada));
     if (!(consumo > 0)) continue;
     insumoNeed.set(it.insumo_producto_id, (insumoNeed.get(it.insumo_producto_id) ?? 0) + consumo);
   }
@@ -456,8 +494,12 @@ export async function crearProduccionPg(
     abierta = true;
 
     const plan = await cargarPlan(client, params, { lock: true });
-    const cantidad = num(params.cantidadFabricar);
+    // Consumo según lo planificado; entra al stock lo que realmente salió.
+    const cantidadPlan = num(params.cantidadFabricar);
+    const cantidad = params.cantidadObtenida != null ? num(params.cantidadObtenida) : cantidadPlan;
+    if (!(cantidad > 0)) throw new ProduccionError("La cantidad producida tiene que ser mayor a cero.");
     const { insumos: insumosDetalle, costoTotal } = detallar(plan);
+    // El costo de lo que se tiró lo absorbe lo que salió bien.
     const costoUnitario = cantidad > 0 ? r6(costoTotal / cantidad) : 0;
 
     if (plan.insumosIncompatibles.length > 0) {
@@ -495,33 +537,71 @@ export async function crearProduccionPg(
       observacionesFinal = (observacionesFinal ? `${observacionesFinal} | ${nota}` : nota).slice(0, 4000);
     }
 
-    // 1) Cabecera.
-    const insProd = await client.query<{ id: string }>(
-      `INSERT INTO ${tProducciones} (
-         empresa_id, receta_id, producto_id, producto_nombre, cantidad_fabricada,
-         rendimiento_cantidad, unidad_rendimiento, costo_total, costo_unitario,
-         fecha, usuario_id, usuario_nombre, observaciones
-       ) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5::numeric,
-                 $6::numeric, $7, $8::numeric, $9::numeric,
-                 $10::timestamptz, $11::uuid, $12, $13)
-       RETURNING id`,
-      [
-        params.empresaId,
-        plan.receta.recetaId,
-        plan.receta.productoId,
-        plan.receta.productoNombre,
-        cantidad,
-        plan.receta.rendimiento,
-        plan.receta.unidadRendimiento,
-        costoTotal,
-        costoUnitario,
-        fechaIso,
-        params.usuarioId ?? null,
-        params.usuarioNombre ?? null,
-        observacionesFinal,
-      ]
+    // Lote y vencimiento: el lote es la fecha y un correlativo del día; el
+    // vencimiento sale de la vida útil de la formulación.
+    const hoy = fechaIso.slice(0, 10);
+    const lotesHoy = await client.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM ${tProducciones}
+        WHERE empresa_id = $1::uuid AND lote LIKE $2`,
+      [params.empresaId, `L${hoy.replace(/-/g, "")}-%`]
     );
-    const produccionId = insProd.rows[0].id;
+    const lote = `L${hoy.replace(/-/g, "")}-${String(Number(lotesHoy.rows[0]?.n ?? 0) + 1).padStart(2, "0")}`;
+    const vencimiento = plan.receta.vidaUtilDias != null && plan.receta.vidaUtilDias > 0
+      ? new Date(Date.parse(`${hoy}T12:00:00Z`) + plan.receta.vidaUtilDias * 86_400_000).toISOString().slice(0, 10)
+      : null;
+    const merma = Math.max(0, num(params.mermaCantidad));
+
+    // 1) Cabecera: la orden que se finaliza, o una producción nueva directa.
+    let produccionId: string;
+    if (params.ordenId) {
+      const upd = await client.query<{ id: string }>(
+        `UPDATE ${tProducciones}
+            SET estado = 'finalizada', cantidad_fabricada = $1::numeric, costo_total = $2::numeric,
+                costo_unitario = $3::numeric, merma_cantidad = $4::numeric, lote = $5,
+                fecha_vencimiento = $6::date, finalizada_at = now(), fecha = $7::timestamptz,
+                ubicacion_id = $8::uuid, observaciones = COALESCE($9, observaciones), updated_at = now()
+          WHERE id = $10::uuid AND empresa_id = $11::uuid AND estado IN ('planificada', 'en_proceso')
+          RETURNING id`,
+        [cantidad, costoTotal, costoUnitario, merma, lote, vencimiento, fechaIso, plan.ubicacionId,
+         observacionesFinal, params.ordenId, params.empresaId]
+      );
+      if (!upd.rows[0]) throw new ProduccionError("La orden no existe o ya fue finalizada o cancelada.", 409);
+      produccionId = upd.rows[0].id;
+    } else {
+      const insProd = await client.query<{ id: string }>(
+        `INSERT INTO ${tProducciones} (
+           empresa_id, receta_id, producto_id, producto_nombre, cantidad_fabricada,
+           rendimiento_cantidad, unidad_rendimiento, costo_total, costo_unitario,
+           fecha, usuario_id, usuario_nombre, observaciones,
+           estado, cantidad_planificada, merma_cantidad, lote, fecha_vencimiento, ubicacion_id, finalizada_at
+         ) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5::numeric,
+                   $6::numeric, $7, $8::numeric, $9::numeric,
+                   $10::timestamptz, $11::uuid, $12, $13,
+                   'finalizada', $14::numeric, $15::numeric, $16, $17::date, $18::uuid, now())
+         RETURNING id`,
+        [
+          params.empresaId,
+          plan.receta.recetaId,
+          plan.receta.productoId,
+          plan.receta.productoNombre,
+          cantidad,
+          plan.receta.rendimiento,
+          plan.receta.unidadRendimiento,
+          costoTotal,
+          costoUnitario,
+          fechaIso,
+          params.usuarioId ?? null,
+          params.usuarioNombre ?? null,
+          observacionesFinal,
+          cantidadPlan,
+          merma,
+          lote,
+          vencimiento,
+          plan.ubicacionId,
+        ]
+      );
+      produccionId = insProd.rows[0].id;
+    }
 
     // 2) Renglones.
     for (const d of insumosDetalle) {
@@ -641,6 +721,8 @@ export async function crearProduccionPg(
 
     return {
       produccion_id: produccionId,
+      lote,
+      fecha_vencimiento: vencimiento,
       producto_id: plan.receta.productoId,
       producto_nombre: plan.receta.productoNombre,
       cantidad_fabricada: cantidad,

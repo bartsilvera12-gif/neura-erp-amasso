@@ -1,5 +1,7 @@
 "use client";
 
+import { CLASES_COMPRABLES, CLASE_INFO, claseVendible, type ClaseProducto } from "@/lib/inventario/clases";
+import { claseDe } from "@/lib/inventario/types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import SelectorUnidad from "@/components/inventario/SelectorUnidad";
 import MontoInput from "@/components/ui/MontoInput";
@@ -76,7 +78,12 @@ export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => 
     cantidad: "", moneda: "PYG" as Moneda, tipo_cambio: "", costo_unitario_input: "",
     iva_tipo: "10" as TipoIva, precio_venta: "", tipo_pago: "contado" as TipoPago,
     plazo_dias: "", cuotas: "1", cuenta_contable_id: "", cuenta_contrapartida_id: "", cuenta_proveedores_id: "",
+    clase: "reventa" as ClaseProducto, ubicacion_id: "",
   });
+  /** Depósitos (sin camiones). La mercadería comprada entra a uno de ellos. */
+  const [depositos, setDepositos] = useState<{ id: string; nombre: string; tipo: string }[]>([]);
+  // Materia prima e insumos no llevan precio de venta: no se venden en Caja.
+  const llevaPrecio = claseVendible(form.clase);
   const set = (patch: Partial<typeof form>) => setForm((p) => ({ ...p, ...patch }));
 
   // Foto/PDF de la factura (se sube después de crear la compra).
@@ -107,6 +114,16 @@ export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => 
     recargarProductos();
     getCuentasContablesOpciones().then(setCuentas);
     (async () => {
+      const { apiFetch } = await import("@/lib/api/fetch-with-supabase-session");
+      const r = await apiFetch("/api/inventario/ubicaciones");
+      const j = await r.json().catch(() => ({}));
+      const lista = ((j?.data?.ubicaciones ?? []) as { id: string; nombre: string; tipo: string }[])
+        .filter((u) => u.tipo !== "camion");
+      setDepositos(lista);
+      // Con un solo depósito no hay nada que elegir.
+      if (lista.length === 1) setForm((prev) => ({ ...prev, ubicacion_id: prev.ubicacion_id || lista[0].id }));
+    })();
+    (async () => {
       try {
         const { apiFetch } = await import("@/lib/api/fetch-with-supabase-session");
         const r = await apiFetch("/api/configuracion/contable");
@@ -123,7 +140,8 @@ export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => 
   }, []);
 
   // Cálculos
-  const cantidadNum = parseFloat(form.cantidad) || 0;
+  // Acepta coma decimal: 0,05 kg es una compra normal de levadura.
+  const cantidadNum = parseFloat(form.cantidad.replace(",", ".")) || 0;
   const costoInputNum = parseFloat(form.costo_unitario_input) || 0;
   const tipoCambioNum = form.moneda === "USD" ? (parseFloat(form.tipo_cambio) || 0) : 1;
   const costoUnitarioPYG = costoInputNum * tipoCambioNum;
@@ -141,12 +159,21 @@ export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => 
   const provOpts: ComboOption[] = useMemo(
     () => proveedores.map((p) => ({ id: p.id, label: p.nombre, sub: p.ruc ? `RUC ${p.ruc}` : null })), [proveedores]);
   const prodOpts: ComboOption[] = useMemo(
-    () => productos.map((p) => ({ id: p.id, label: p.nombre, sub: `${p.sku} · stock ${p.stock_actual}` })), [productos]);
+    // Solo lo que entra por compra: materia prima, insumos y reventa. Terminados
+    // e intermedios entran por producción.
+    () => productos
+      .filter((p) => (CLASES_COMPRABLES as readonly string[]).includes(claseDe(p)))
+      .map((p) => ({ id: p.id, label: p.nombre, sub: `${CLASE_INFO[claseDe(p)].etiqueta} · ${p.sku} · stock ${p.stock_actual}` })),
+    [productos]);
 
   function seleccionarProducto(id: string | null) {
     const p = productos.find((x) => x.id === id);
+    const clase = p && (CLASES_COMPRABLES as readonly string[]).includes(claseDe(p)) ? claseDe(p) : form.clase;
+    // Depósito sugerido: reventa al punto de venta (tipo salón), el resto a la fábrica.
+    const sugerido = depositos.find((d) => (claseVendible(clase) ? d.tipo === "salon" : d.tipo !== "salon"));
     set({ producto_id: id ?? "", costo_unitario_input: p ? String(p.costo_promedio) : form.costo_unitario_input,
-          precio_venta: p ? String(p.precio_venta) : form.precio_venta });
+          precio_venta: p ? String(p.precio_venta) : form.precio_venta, clase,
+          ubicacion_id: form.ubicacion_id || sugerido?.id || "" });
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -156,7 +183,8 @@ export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => 
     if (!form.producto_id) return setErrorSubmit("Seleccioná o agregá un producto.");
     if (cantidadNum <= 0) return setErrorSubmit("La cantidad debe ser mayor a 0.");
     if (costoUnitarioPYG <= 0) return setErrorSubmit("El costo unitario debe ser mayor a 0.");
-    if (precioVentaNum <= 0) return setErrorSubmit("El precio de venta debe ser mayor a 0.");
+    if (llevaPrecio && precioVentaNum <= 0) return setErrorSubmit("El precio de venta debe ser mayor a 0.");
+    if (depositos.length > 0 && !form.ubicacion_id) return setErrorSubmit("Elegí el depósito donde entra la mercadería.");
     if (!form.nro_timbrado?.trim()) return setErrorSubmit("Ingresá el N° de timbrado.");
     if (!form.cuenta_contable_id) return setErrorSubmit("Seleccioná la cuenta contable de la compra.");
     if (form.tipo_pago === "contado" && !form.cuenta_contrapartida_id) return setErrorSubmit("Seleccioná la cuenta de pago (contado).");
@@ -176,7 +204,8 @@ export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => 
         cantidad: cantidadNum, moneda: form.moneda, tipo_cambio: tipoCambioNum,
         costo_unitario_original: costoInputNum, costo_unitario: costoUnitarioPYG,
         iva_tipo: form.iva_tipo, subtotal, monto_iva: montoIva, total,
-        precio_venta: precioVentaNum, margen_venta: margenVenta ?? 0, tipo_pago: form.tipo_pago,
+        precio_venta: llevaPrecio ? precioVentaNum : 0, margen_venta: llevaPrecio ? margenVenta ?? 0 : 0, tipo_pago: form.tipo_pago,
+        clase_producto: form.clase, ubicacion_id: form.ubicacion_id || null,
         plazo_dias: form.tipo_pago === "credito" && form.plazo_dias ? parseInt(form.plazo_dias) : undefined,
         cuotas: form.tipo_pago === "credito" ? Math.max(1, parseInt(form.cuotas) || 1) : undefined,
         nro_timbrado: form.nro_timbrado,
@@ -238,7 +267,7 @@ export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => 
       unidad_medida: fProd.unidad_medida.toUpperCase(), metodo_valuacion: "CPP",
       stock_actual: 0, stock_minimo: parseInt(fProd.stock_minimo) || 0,
       // El precio de venta se toma del campo del formulario principal al guardar la compra.
-      costo_promedio: costoUnitarioPYG || 0, precio_venta: 0,
+      costo_promedio: costoUnitarioPYG || 0, precio_venta: 0, clase_producto: form.clase,
     });
     if (!creado) return;
     await recargarProductos();
@@ -379,6 +408,27 @@ export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => 
               ) : null}
             </div>
 
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className={LABEL}>¿Qué se compra? <span className="text-red-500">*</span></label>
+                <Seg<ClaseProducto> value={form.clase}
+                  options={CLASES_COMPRABLES.map((c) => ({ value: c, label: c === "insumo" ? "Insumo / Empaque" : CLASE_INFO[c].etiqueta }))}
+                  onChange={(v) => set({ clase: v })} />
+                <p className="mt-1 text-[11px] text-slate-400">{CLASE_INFO[form.clase].detalle}</p>
+              </div>
+              {depositos.length > 0 && (
+                <div>
+                  <label className={LABEL}>Depósito de destino <span className="text-red-500">*</span></label>
+                  <select value={form.ubicacion_id} onChange={(e) => set({ ubicacion_id: e.target.value })} className={INPUT}>
+                    <option value="">Elegir depósito…</option>
+                    {depositos.map((d) => (
+                      <option key={d.id} value={d.id}>{d.nombre}{d.tipo === "salon" ? " (Punto de venta)" : ""}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
             {nvProd && (
               <InlineBox titulo="Nuevo producto" onCancel={() => { setNvProd(false); setErrSku(null); }}
                 onSave={agregarProducto} saveDisabled={!fProd.nombre.trim() || !fProd.sku.trim()}>
@@ -423,8 +473,9 @@ export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => 
                 )}
               </div>
               <div><label className={LABEL}>Cantidad <span className="text-red-500">*</span></label>
-                <input type="number" min={1} step={1} value={form.cantidad}
-                  onChange={(e) => set({ cantidad: e.target.value })} placeholder="Ej: 50" className={INPUT} /></div>
+                <input inputMode="decimal" value={form.cantidad}
+                  onChange={(e) => set({ cantidad: e.target.value.replace(/[^0-9.,]/g, "") })} placeholder="Ej: 50 o 0,05" className={INPUT} />
+                <p className="mt-1 text-[11px] text-slate-400">Admite decimales: 50 g = 0,05 kg.</p></div>
 
               {/* Par costo ↔ precio, siempre lado a lado */}
               <div><label className={LABEL}>Costo unitario ({form.moneda === "USD" ? "USD" : "Gs."}) <span className="text-red-500">*</span></label>
@@ -434,14 +485,20 @@ export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => 
                   <p className="mt-1 text-[11px] text-slate-400">≈ {fmt(costoUnitarioPYG)} por unidad</p>
                 )}
               </div>
-              <div><label className={LABEL}>Precio de venta (Gs.) <span className="text-red-500">*</span></label>
-                <MontoInput value={form.precio_venta} onChange={(nn) => set({ precio_venta: String(nn) })}
-                  placeholder="Ej: 75000" className={INPUT} decimals={false} />
-                <p className="mt-1 text-[11px] text-slate-400">Se actualizará en inventario al guardar.</p>
-              </div>
+              {llevaPrecio ? (
+                <div><label className={LABEL}>Precio de venta (Gs.) <span className="text-red-500">*</span></label>
+                  <MontoInput value={form.precio_venta} onChange={(nn) => set({ precio_venta: String(nn) })}
+                    placeholder="Ej: 75000" className={INPUT} decimals={false} />
+                  <p className="mt-1 text-[11px] text-slate-400">Pasa a ser el precio de la Caja al guardar.</p>
+                </div>
+              ) : (
+                <div className="flex items-end">
+                  <p className="text-[11px] text-slate-400">{CLASE_INFO[form.clase].etiqueta}: no se vende, no lleva precio de venta.</p>
+                </div>
+              )}
             </div>
 
-            {margenVenta !== null && calculosListos && (
+            {llevaPrecio && margenVenta !== null && calculosListos && (
               <div className={`flex items-center justify-between rounded-lg border px-4 py-2.5 ${
                 margenVenta < 0 ? "border-red-200 bg-red-50" : "border-slate-200 bg-slate-50"}`}>
                 <span className="text-sm text-slate-600">Margen sobre venta</span>

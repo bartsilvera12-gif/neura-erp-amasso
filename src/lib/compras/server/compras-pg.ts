@@ -1,3 +1,4 @@
+import { flagsDeClase, type ClaseProducto } from "@/lib/inventario/clases";
 /**
  * PG directo para Compras. Mismo patron que productos-pg / proveedores-pg:
  * pool singleton + queries parametrizadas + identifier escape.
@@ -97,6 +98,8 @@ export interface InsertCompraInput {
   afecta_stock: boolean;
   /** Clave de idempotencia (uuid) para que un doble-envío no cree dos compras. */
   idempotency_key: string | null;
+  ubicacion_id?: string | null;
+  clase_producto?: ClaseProducto | null;
   created_by: string | null;
   usuario_nombre: string | null;
 }
@@ -230,6 +233,14 @@ export interface CompraMultilineaInput {
   idempotency_key: string | null;
   created_by: string | null;
   usuario_nombre: string | null;
+  /**
+   * Depósito donde entra la mercadería (compra directa). Sin esto la compra
+   * subía solo el total del producto y no el stock del depósito: un producto de
+   * reventa comprado así nunca aparecía en la Caja del punto de venta.
+   */
+  ubicacion_id?: string | null;
+  /** Clase que se le asigna al producto comprado (materia prima, insumo, reventa). */
+  clase_producto?: ClaseProducto | null;
 }
 
 /** IVA INCLUIDO: el costo cargado es el total con IVA; el IVA se DEDUCE. */
@@ -439,12 +450,14 @@ export async function insertCompraMultilinea(
         const costoUnit = agg.cantidad > 0 ? agg.costoPonderado / agg.cantidad : 0;
         const { rows: mov } = await client.query<{ id: string }>(
           `INSERT INTO ${tM} (empresa_id, producto_id, producto_nombre, producto_sku, tipo, cantidad,
-             costo_unitario, origen, referencia, fecha, created_by, usuario_nombre, documento_tipo, documento_id)
+             costo_unitario, origen, referencia, fecha, created_by, usuario_nombre, documento_tipo, documento_id,
+             ubicacion_id)
            SELECT $1::uuid,$2::uuid,$3,COALESCE(p.sku,''),'ENTRADA',$4::numeric,$5::numeric,
-                  'compra',$6,now(),$7::uuid,$8,'compra',$9::uuid
+                  'compra',$6,now(),$7::uuid,$8,'compra',$9::uuid,$10::uuid
              FROM ${tP} p WHERE p.id = $2::uuid AND p.empresa_id = $1::uuid
            RETURNING id`,
-          [empresaId, productoId, agg.nombre, agg.cantidad, costoUnit, numero, d.created_by, d.usuario_nombre, compra.id]
+          [empresaId, productoId, agg.nombre, agg.cantidad, costoUnit, numero, d.created_by, d.usuario_nombre, compra.id,
+           d.ubicacion_id ?? null]
         );
         if (!mov[0]?.id) throw new Error("No se pudo registrar el movimiento de inventario (producto inexistente).");
         movimientoId = movimientoId ?? mov[0].id;
@@ -459,6 +472,29 @@ export async function insertCompraMultilinea(
           [agg.cantidad, costoUnit, agg.precioVenta, productoId, empresaId]
         );
         if (upd.rowCount === 0) throw new Error("No se pudo actualizar el stock del producto.");
+
+        // Stock del depósito, en la misma transacción que el total.
+        if (d.ubicacion_id) {
+          const tSU = quoteSchemaTable(schema, "inventario_stock_ubicacion");
+          await client.query(
+            `INSERT INTO ${tSU} (empresa_id, producto_id, ubicacion_id, stock_actual)
+             VALUES ($1::uuid,$2::uuid,$3::uuid,$4::numeric)
+             ON CONFLICT (empresa_id, producto_id, ubicacion_id)
+               DO UPDATE SET stock_actual = ${tSU.split(".").pop()}.stock_actual + EXCLUDED.stock_actual, updated_at = now()`,
+            [empresaId, productoId, d.ubicacion_id, agg.cantidad]
+          );
+        }
+
+        // Clase del producto: si en la compra se indicó materia prima, insumo o
+        // reventa, queda guardada en el producto.
+        if (d.clase_producto) {
+          const f = flagsDeClase(d.clase_producto);
+          await client.query(
+            `UPDATE ${tP} SET clase_producto = $1, es_vendible = $2::boolean, es_insumo = $3::boolean, updated_at = now()
+              WHERE id = $4::uuid AND empresa_id = $5::uuid`,
+            [d.clase_producto, f.es_vendible, f.es_insumo, productoId, empresaId]
+          );
+        }
       }
     }
 
@@ -554,6 +590,8 @@ export async function insertCompraConImpacto(
     idempotency_key: d.idempotency_key,
     created_by: d.created_by,
     usuario_nombre: d.usuario_nombre,
+    ubicacion_id: d.ubicacion_id ?? null,
+    clase_producto: d.clase_producto ?? null,
   });
 }
 

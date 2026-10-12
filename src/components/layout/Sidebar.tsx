@@ -144,6 +144,8 @@ const MENU_STRUCTURE: MenuItem[] = [
   { key: "inventario", slug: "inventario", label: "Inventario", href: "/inventario", icon: Package, children: [
     { label: "Productos", href: "/inventario" },
     { label: "Movimientos", href: "/inventario/movimientos" },
+    { label: "Transferencias", href: "/inventario/transferencias" },
+    { label: "Conteo físico", href: "/inventario/conteos" },
     { label: "Categorías", href: "/inventario/categorias" },
     { label: "Depósitos / Ubicaciones", href: "/inventario/ubicaciones" },
   ]},
@@ -155,6 +157,11 @@ const MENU_STRUCTURE: MenuItem[] = [
     label: "Formulaciones e insumos",
     href: "/dashboard/recetas",
     icon: ChefHat,
+    children: [
+      { label: "Formulaciones", href: "/dashboard/recetas", exactMatch: true },
+      { label: "Órdenes de producción", href: "/dashboard/recetas/produccion" },
+      { label: "Mermas y devoluciones", href: "/dashboard/recetas/mermas" },
+    ],
   },
   { key: "clientes", slug: "clientes", label: "Clientes", href: "/clientes", icon: Users },
   {

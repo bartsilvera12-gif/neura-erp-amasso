@@ -326,6 +326,40 @@ export async function createVentaTransaccionalPg(
       ubicacionId = ubiQ.rows[0]?.ubicacion_id ?? null;
     }
 
+    // Venta de mostrador: sale del Punto de venta, que es la ubicación de tipo
+    // `salon`. Lo que está en Fábrica no se vende: primero se transfiere al PDV
+    // (requerimiento de Amasso). Sin un PDV configurado se sigue como antes,
+    // contra el stock general, para no dejar la caja sin poder vender.
+    let esPuntoDeVenta = false;
+    if (params.repartoId === null && hayStockPorUbicacion) {
+      const ubiT = quoteSchemaTable(params.schema, "inventario_ubicaciones");
+      const pdv = await client.query<{ id: string }>(
+        `SELECT id FROM ${ubiT}
+          WHERE empresa_id = $1::uuid AND activo = true AND lower(btrim(tipo)) = 'salon'
+          ORDER BY created_at LIMIT 2`,
+        [params.empresaId]
+      );
+      if (pdv.rows.length > 1) {
+        throw new Error("Hay más de un depósito marcado como Punto de venta. Dejá uno solo en Inventario › Depósitos.");
+      }
+      if (pdv.rows.length === 1) {
+        ubicacionId = pdv.rows[0].id;
+        esPuntoDeVenta = true;
+      }
+    }
+
+    // Materia prima, insumos, intermedios y mermas no se venden.
+    {
+      const noVend = await client.query<{ nombre: string }>(
+        `SELECT nombre FROM ${prodT}
+          WHERE empresa_id = $1::uuid AND id = ANY($2::uuid[]) AND es_vendible = false`,
+        [params.empresaId, ids]
+      );
+      if (noVend.rows.length > 0) {
+        throw new Error(`"${noVend.rows[0].nombre}" no es un producto de venta (materia prima, insumo o intermedio).`);
+      }
+    }
+
     // Lo que no está arriba del camión no se puede vender desde el camión.
     //
     // El chequeo de más arriba mira el stock general de la empresa, que incluye
@@ -346,9 +380,13 @@ export async function createVentaTransaccionalPg(
         if (hay < need) {
           const nombre = stockMap.get(pid)?.nombre ?? "ese producto";
           throw new Error(
-            hay <= 0
-              ? `"${nombre}" no está cargado en el camión. Cargalo desde Repartos antes de venderlo.`
-              : `El camión tiene ${hay} de "${nombre}" y la venta pide ${need}.`
+            esPuntoDeVenta
+              ? hay <= 0
+                ? `"${nombre}" no tiene stock en el Punto de venta. Transferilo desde Fábrica.`
+                : `En el Punto de venta hay ${hay} de "${nombre}" y la venta pide ${need}.`
+              : hay <= 0
+                ? `"${nombre}" no está cargado en el camión. Cargalo desde Repartos antes de venderlo.`
+                : `El camión tiene ${hay} de "${nombre}" y la venta pide ${need}.`
           );
         }
       }
@@ -487,7 +525,7 @@ export async function createVentaTransaccionalPg(
           INSERT INTO ${stockUbiT} (empresa_id, producto_id, ubicacion_id, stock_actual)
           VALUES ($1::uuid, $2::uuid, $3::uuid, $4)
           ON CONFLICT (empresa_id, producto_id, ubicacion_id)
-          DO UPDATE SET stock_actual = ${stockUbiT}.stock_actual + EXCLUDED.stock_actual,
+          DO UPDATE SET stock_actual = ${stockUbiT.split(".").pop()}.stock_actual + EXCLUDED.stock_actual,
                         updated_at = now()
           `,
           [params.empresaId, line.producto_id, ubicacionId, -line.cantidad]

@@ -15,11 +15,12 @@
  * a `/configuracion/bancos`, que es una pantalla hija — no servía para llegar
  * al panel de Configuración.
  */
-// Recetas: oculta del menú a pedido (7-oct-2026). La pantalla sigue andando
-// por URL (/dashboard/recetas); para volver a mostrarla, sacarla de acá.
 // Agenda y Cobranzas: ocultos a pedido de Amasso (requerimientos, oct-2026).
 // No venden a crédito por ahora, así que Cobranzas no tiene uso.
-export const ITEMS_OCULTOS_EN_MENU: ReadonlySet<string> = new Set<string>(["recetas", "agenda", "cobranzas"]);
+// Recetas volvió al menú como "Formulaciones e insumos" (mismo documento).
+// Bancos: solo sirve para registrar cobros por transferencia (Cobranzas y
+// pagos de clientes), o sea las ventas a crédito; la Caja no lo usa.
+export const ITEMS_OCULTOS_EN_MENU: ReadonlySet<string> = new Set<string>(["agenda", "cobranzas", "bancos"]);
 
 /**
  * Prefijos de ruta que no se ofrecen en la navegación mobile.

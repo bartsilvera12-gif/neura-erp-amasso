@@ -49,6 +49,11 @@ export async function PATCH(request: NextRequest, { params }: RouteCtx) {
       patch.rendimiento_unidad = body.rendimiento_unidad;
     if (typeof body.notas === "string" || body.notas === null) patch.notas = body.notas;
     if (typeof body.activa === "boolean") patch.activa = body.activa;
+    // Merma esperada en fracción (0.05 = 5%), como la merma de cada ingrediente.
+    if (typeof body.merma_esperada_pct === "number" && body.merma_esperada_pct >= 0 && body.merma_esperada_pct < 0.95)
+      patch.merma_esperada_pct = body.merma_esperada_pct;
+    if (body.vida_util_dias === null || (typeof body.vida_util_dias === "number" && body.vida_util_dias >= 0))
+      patch.vida_util_dias = body.vida_util_dias === null ? null : Math.round(body.vida_util_dias as number);
     const row = await updateReceta(ctx.supabase, ctx.auth.empresa_id, id, patch);
     return NextResponse.json(successResponse({ receta: row }));
   } catch (err) {

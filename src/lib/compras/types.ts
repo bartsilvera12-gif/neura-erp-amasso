@@ -4,6 +4,9 @@ export type Moneda = "PYG" | "USD";
 
 export interface Compra {
   id: string;
+  /** Solo al crear: depósito de destino y clase que toma el producto. */
+  ubicacion_id?: string | null;
+  clase_producto?: import("@/lib/inventario/clases").ClaseProducto | null;
   numero_control: string;        // COMP-000001, COMP-000002, ...
 
   proveedor_id: string;

@@ -1,3 +1,4 @@
+import { claseVendible, esClaseProducto, type ClaseProducto } from "@/lib/inventario/clases";
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
@@ -162,7 +163,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(errorResponse("La cantidad debe ser mayor a 0."), { status: 400 });
     if (!req("costo_unitario") || Number(body.costo_unitario) <= 0)
       return NextResponse.json(errorResponse("El costo unitario debe ser mayor a 0."), { status: 400 });
-    if (!req("precio_venta") || Number(body.precio_venta) <= 0)
+    // Clase: materia prima e insumo no llevan precio de venta (no se venden en Caja).
+    const claseCompra: ClaseProducto | null = esClaseProducto(body.clase_producto) ? body.clase_producto : null;
+    const llevaPrecio = claseCompra ? claseVendible(claseCompra) : true;
+    if (llevaPrecio && (!req("precio_venta") || Number(body.precio_venta) <= 0))
       return NextResponse.json(errorResponse("El precio de venta debe ser mayor a 0."), { status: 400 });
     if (!req("nro_timbrado"))
       return NextResponse.json(errorResponse("Falta el N° de timbrado."), { status: 400 });
@@ -201,8 +205,12 @@ export async function POST(request: NextRequest) {
         subtotal,
         monto_iva: montoIva,
         total,
-        precio_venta: Number(body.precio_venta) || 0,
-        margen_venta: body.margen_venta != null ? Number(body.margen_venta) : null,
+        // Sin precio (materia prima/insumo) va null: el UPDATE del producto usa
+        // COALESCE y no le pisa el precio que tuviera.
+        precio_venta: llevaPrecio ? Number(body.precio_venta) || 0 : (null as unknown as number),
+        margen_venta: llevaPrecio && body.margen_venta != null ? Number(body.margen_venta) : null,
+        ubicacion_id: req("ubicacion_id") && UUID_RE.test(String(body.ubicacion_id)) ? String(body.ubicacion_id) : null,
+        clase_producto: claseCompra,
         tipo_pago: body.tipo_pago === "credito" ? "credito" : "contado",
         plazo_dias: body.plazo_dias != null && String(body.plazo_dias).trim() !== ""
           ? parseInt(String(body.plazo_dias), 10) || null : null,

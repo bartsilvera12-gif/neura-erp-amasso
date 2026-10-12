@@ -7,6 +7,7 @@ import { getChatPostgresPool, quoteSchemaTable } from "@/lib/supabase/chat-pg-po
 import { assertAllowedChatDataSchema } from "@/lib/supabase/chat-data-schema";
 import { queryWithRetry } from "@/lib/supabase/pg-retry";
 import { getAuthWithRol } from "@/lib/middleware/auth";
+import { esRolAdminEmpresaOGlobal } from "@/lib/auth/rol-empresa";
 import {
   crearMovimientoPg,
   MovimientoError,
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
     const { rows } = await queryWithRetry(pool,
       `SELECT id, empresa_id, producto_id, producto_nombre, producto_sku,
               tipo, cantidad, costo_unitario, origen, referencia, fecha, created_at, updated_at,
-              created_by, usuario_nombre
+              created_by, usuario_nombre, motivo
          FROM ${t}
         WHERE empresa_id = $1::uuid
         ORDER BY fecha DESC
@@ -64,6 +65,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(errorResponse("JSON inválido."), { status: 400 });
     }
 
+    // Ajuste de inventario a mano. Los productos entran por compras y por
+    // producción; esto queda solo para corregir, lo hace un administrador y
+    // siempre con motivo (requerimiento de Amasso: quién, cuándo y por qué).
+    if (!esRolAdminEmpresaOGlobal(auth.rol)) {
+      return NextResponse.json(errorResponse("Solo un administrador puede ajustar el stock."), { status: 403 });
+    }
+    const motivo = String(body.motivo ?? "").trim();
+    if (motivo.length < 3) {
+      return NextResponse.json(errorResponse("Indicá el motivo del ajuste."), { status: 400 });
+    }
+
     const productoId = body.producto_id ? String(body.producto_id) : "";
     if (!productoId) {
       return NextResponse.json(errorResponse("producto_id es obligatorio."), { status: 400 });
@@ -87,7 +99,8 @@ export async function POST(request: NextRequest) {
       tipo,
       cantidad,
       costoUnitario: Number(body.costo_unitario) || 0,
-      origen: String(body.origen ?? "ajuste_manual"),
+      origen: "ajuste_manual",
+      motivo,
       referencia: body.referencia == null ? null : String(body.referencia).slice(0, 500),
       ubicacionId: body.ubicacion_id ? String(body.ubicacion_id) : null,
       usuarioId: auth.user?.id ?? null,

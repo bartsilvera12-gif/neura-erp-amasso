@@ -118,14 +118,15 @@ export default function NuevaRecetaPage() {
         <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-6 text-center">
           <ChefHat className="mx-auto h-8 w-8 text-gray-300" />
           <p className="mt-3 text-sm font-medium text-gray-700">
-            Todos los productos del Menú ya tienen una receta.
+            No hay productos para formular.
           </p>
           <p className="mt-1 text-sm text-gray-500">
-            Para crear una receta, primero cargá el producto en Inventario. Acá aparecen los productos activos que todavía no tienen receta.
+            Acá aparecen los productos terminados e intermedios que todavía no tienen formulación. Cargalos en
+            Inventario con esa clase (Producto terminado o Intermedio).
           </p>
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             <Link
-              href="/inventario/nuevo"
+              href="/inventario/nuevo?clase=terminado"
               className="inline-flex items-center rounded-lg bg-[#4FAEB2] px-4 py-2 text-sm font-medium text-white hover:bg-[#3F8E91] transition-colors"
             >
               Ir a Inventario

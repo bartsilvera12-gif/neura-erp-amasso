@@ -16,8 +16,14 @@ const tipoBadge: Record<TipoMovimiento, string> = {
 const origenLabel: Record<OrigenMovimiento, string> = {
   compra: "Compra",
   venta: "Venta",
-  ajuste_manual: "Ajuste manual",
+  ajuste_manual: "Ajuste",
   inventario_inicial: "Inventario inicial",
+  produccion: "Producción",
+  transferencia: "Transferencia",
+  recepcion: "Recepción",
+  carga_proveedor: "Carga proveedor",
+  rendicion_reparto: "Rendición reparto",
+  anulacion: "Anulación",
 };
 
 const origenBadge: Record<OrigenMovimiento, string> = {
@@ -25,6 +31,12 @@ const origenBadge: Record<OrigenMovimiento, string> = {
   venta: "bg-purple-50 text-purple-600",
   ajuste_manual: "bg-gray-100 text-gray-600",
   inventario_inicial: "bg-orange-50 text-orange-600",
+  produccion: "bg-emerald-50 text-emerald-700",
+  transferencia: "bg-sky-50 text-sky-700",
+  recepcion: "bg-blue-50 text-blue-600",
+  carga_proveedor: "bg-blue-50 text-blue-600",
+  rendicion_reparto: "bg-purple-50 text-purple-600",
+  anulacion: "bg-rose-50 text-rose-600",
 };
 
 function formatGs(valor: number) {
@@ -182,7 +194,7 @@ export default function MovimientosPage() {
             href="/inventario/movimientos/nuevo"
             className="inline-flex items-center gap-1.5 rounded-xl bg-[#4FAEB2] px-3.5 py-2 text-xs font-semibold text-white shadow-sm shadow-[#4FAEB2]/25 transition-colors hover:bg-[#3F8E91]"
           >
-            + Nuevo movimiento
+            + Ajuste de inventario
           </Link>
 
           {/* Buscador único */}
@@ -311,9 +323,10 @@ export default function MovimientosPage() {
                         {formatGs(m.costo_unitario)}
                       </td>
                       <td className="py-4 pr-4">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${origenBadge[m.origen]}`}>
-                          {origenLabel[m.origen]}
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${origenBadge[m.origen] ?? "bg-gray-100 text-gray-600"}`}>
+                          {origenLabel[m.origen] ?? m.origen}
                         </span>
+                        {m.motivo ? <span className="mt-1 block max-w-[16rem] text-xs text-gray-500">{m.motivo}</span> : null}
                       </td>
                       <td className="py-4 pr-4 text-gray-600 text-xs">
                         {m.usuario_nombre ?? <span className="text-gray-300">—</span>}

@@ -25,11 +25,18 @@ type Empleado = {
   horario_entrada: string | null;
   horario_salida: string | null;
   activo: boolean;
+  salario_base: number | null;
+  tipo_remuneracion: "mensual" | "jornal";
+  fecha_ingreso: string | null;
+  aporta_ips: boolean;
 };
 
 type Fila = {
   empleado: Empleado;
-  asistencia: { id: string; estado: Estado; entrada: string | null; salida: string | null; observacion: string | null } | null;
+  asistencia: {
+    id: string; estado: Estado; entrada: string | null; salida: string | null; observacion: string | null;
+    justificada: boolean | null;
+  } | null;
 };
 
 type Resumen = {
@@ -44,6 +51,28 @@ type Resumen = {
   reposo: number;
   minutos: number;
   sin_salida: number;
+  ausente_justificada: number;
+  ausente_injustificada: number;
+  minutos_extra: number;
+};
+
+type Liquidacion = {
+  empleado_id: string;
+  nombre: string;
+  tipo_remuneracion: string;
+  salario_base: number | null;
+  dias_trabajados: number;
+  ausencias_injustificadas: number;
+  horas_extra: number;
+  monto_base: number;
+  descuento_ausencias: number;
+  monto_extras: number;
+  bruto: number;
+  ips_obrero: number;
+  ips_patronal: number;
+  aguinaldo_provision: number;
+  neto: number;
+  aviso: string | null;
 };
 
 const ZONA = "America/Asuncion";
@@ -119,7 +148,7 @@ async function pedir<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export default function AsistenciaClient() {
-  const [vista, setVista] = useState<"planilla" | "resumen" | "empleados">("planilla");
+  const [vista, setVista] = useState<"planilla" | "resumen" | "vacaciones" | "empleados">("planilla");
   const { isAdmin, loaded } = useIsAdmin();
 
   return (
@@ -141,7 +170,8 @@ export default function AsistenciaClient() {
       <div role="tablist" className="inline-flex flex-wrap rounded-xl border border-slate-200 bg-slate-50 p-1">
         {([
           { id: "planilla", label: "Planilla del día" },
-          { id: "resumen", label: "Resumen del mes" },
+          { id: "resumen", label: "Resumen y liquidación" },
+          { id: "vacaciones", label: "Vacaciones y reposos" },
           { id: "empleados", label: "Empleados" },
         ] as const).map((t) => (
           <button
@@ -166,7 +196,8 @@ export default function AsistenciaClient() {
       ) : null}
 
       {vista === "planilla" ? <Planilla puedeEditar={isAdmin} irAEmpleados={() => setVista("empleados")} /> : null}
-      {vista === "resumen" ? <ResumenMes /> : null}
+      {vista === "resumen" ? <ResumenMes esAdmin={isAdmin} /> : null}
+      {vista === "vacaciones" ? <Vacaciones puedeEditar={isAdmin} /> : null}
       {vista === "empleados" ? <Empleados puedeEditar={isAdmin} /> : null}
     </div>
   );
@@ -376,6 +407,19 @@ function FilaPlanilla({
             </option>
           ))}
         </select>
+        {a?.estado === "ausente" ? (
+          <select
+            className={`${INPUT} mt-1 block text-xs ${a.justificada ? "text-emerald-700" : "text-rose-700"}`}
+            value={a.justificada == null ? "" : a.justificada ? "si" : "no"}
+            disabled={!puedeEditar || guardando}
+            onChange={(ev) => onGuardar({ justificada: ev.target.value === "" ? null : ev.target.value === "si" })}
+            aria-label={`Ausencia de ${e.nombre} justificada`}
+          >
+            <option value="">¿Justificada?</option>
+            <option value="si">Justificada</option>
+            <option value="no">Injustificada</option>
+          </select>
+        ) : null}
       </td>
       <td className="px-3 py-2.5">
         {conHoras ? (
@@ -441,9 +485,10 @@ function FilaPlanilla({
 
 // ─── Resumen del mes ──────────────────────────────────────────────────────
 
-function ResumenMes() {
+function ResumenMes({ esAdmin }: { esAdmin: boolean }) {
   const [mes, setMes] = useState(() => ahoraPY().mes);
   const [filas, setFilas] = useState<Resumen[]>([]);
+  const [liq, setLiq] = useState<Liquidacion[] | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -451,94 +496,282 @@ function ResumenMes() {
     let cancel = false;
     setCargando(true);
     setError(null);
+    setLiq(null);
     pedir<{ resumen: Resumen[] }>(`/api/rrhh/asistencia/resumen?mes=${mes}`)
       .then((d) => !cancel && setFilas(d.resumen))
       .catch((e) => !cancel && setError(e instanceof Error ? e.message : String(e)))
       .finally(() => !cancel && setCargando(false));
+    if (esAdmin) {
+      pedir<{ filas: Liquidacion[] }>(`/api/rrhh/asistencia/liquidacion?mes=${mes}`)
+        .then((d) => !cancel && setLiq(d.filas))
+        .catch(() => null);
+    }
     return () => {
       cancel = true;
     };
-  }, [mes]);
+  }, [mes, esAdmin]);
 
-  const cols: { k: keyof Resumen; label: string }[] = [
-    { k: "presente", label: "Presente" },
-    { k: "tarde", label: "Tarde" },
-    { k: "ausente", label: "Ausente" },
-    { k: "permiso", label: "Permiso" },
-    { k: "vacaciones", label: "Vacac." },
-    { k: "reposo", label: "Reposo" },
-  ];
+  async function descargar() {
+    const r = await apiFetch(`/api/rrhh/asistencia/liquidacion?mes=${mes}&formato=csv`);
+    if (!r.ok) return setError("No se pudo generar el archivo.");
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `liquidacion-${mes}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const gs = (n: number) => n.toLocaleString("es-PY");
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <label className="text-sm text-slate-600" htmlFor="mes-asistencia">
-          Mes
-        </label>
-        <input id="mes-asistencia" type="month" className={INPUT} value={mes} onChange={(e) => e.target.value && setMes(e.target.value)} />
-        <span className="text-xs text-slate-400">Las horas cuentan solo los días con entrada y salida.</span>
-      </div>
-      {error ? <p className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[720px] text-sm">
-          <thead className="bg-slate-50/80 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+    <div className="space-y-5">
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <label className="text-sm text-slate-600" htmlFor="mes-asistencia">Mes</label>
+          <input id="mes-asistencia" type="month" className={INPUT} value={mes} onChange={(e) => e.target.value && setMes(e.target.value)} />
+          <span className="text-xs text-slate-400">
+            Horas extra: lo trabajado después de la hora de salida de cada empleado.
+          </span>
+        </div>
+        {error ? <p className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[820px] text-sm">
+            <thead className="bg-slate-50/80 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+              <tr>
+                <th className="px-3 py-2.5">Empleado</th>
+                <th className="px-3 py-2.5 text-center">Trabajados</th>
+                <th className="px-3 py-2.5 text-center">Tarde</th>
+                <th className="px-3 py-2.5 text-center">Aus. justif.</th>
+                <th className="px-3 py-2.5 text-center">Aus. injustif.</th>
+                <th className="px-3 py-2.5 text-center">Permiso</th>
+                <th className="px-3 py-2.5 text-center">Vacac.</th>
+                <th className="px-3 py-2.5 text-center">Reposo</th>
+                <th className="px-3 py-2.5 text-right">Horas</th>
+                <th className="px-3 py-2.5 text-right">Extra</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {cargando ? (
+                <tr><td colSpan={10} className="px-3 py-8 text-center text-slate-400">Cargando…</td></tr>
+              ) : filas.length === 0 && !error ? (
+                <tr><td colSpan={10} className="px-3 py-8 text-center text-slate-500">Sin empleados ni registros en este mes.</td></tr>
+              ) : (
+                filas.map((r) => (
+                  <tr key={r.empleado_id}>
+                    <td className="px-3 py-2.5">
+                      <span className="block font-medium text-slate-800">{r.nombre}</span>
+                      {r.cargo ? <span className="block text-xs text-slate-400">{r.cargo}</span> : null}
+                    </td>
+                    <td className="px-3 py-2.5 text-center tabular-nums">{r.presente + r.tarde}</td>
+                    <td className={`px-3 py-2.5 text-center tabular-nums ${r.tarde ? "font-semibold text-amber-700" : "text-slate-300"}`}>{r.tarde}</td>
+                    <td className={`px-3 py-2.5 text-center tabular-nums ${r.ausente_justificada ? "" : "text-slate-300"}`}>{r.ausente_justificada}</td>
+                    <td className={`px-3 py-2.5 text-center tabular-nums ${r.ausente_injustificada ? "font-semibold text-rose-600" : "text-slate-300"}`}>{r.ausente_injustificada}</td>
+                    <td className={`px-3 py-2.5 text-center tabular-nums ${r.permiso ? "" : "text-slate-300"}`}>{r.permiso}</td>
+                    <td className={`px-3 py-2.5 text-center tabular-nums ${r.vacaciones ? "" : "text-slate-300"}`}>{r.vacaciones}</td>
+                    <td className={`px-3 py-2.5 text-center tabular-nums ${r.reposo ? "" : "text-slate-300"}`}>{r.reposo}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">
+                      {horas(r.minutos)}
+                      {r.sin_salida > 0 ? <span className="block text-[11px] text-amber-700">{r.sin_salida} día{r.sin_salida === 1 ? "" : "s"} sin salida</span> : null}
+                    </td>
+                    <td className={`px-3 py-2.5 text-right tabular-nums ${r.minutos_extra ? "font-semibold text-[#3F8E91]" : "text-slate-300"}`}>
+                      {r.minutos_extra ? horas(r.minutos_extra) : "—"}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {esAdmin && liq ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-700">Liquidación de referencia</h2>
+              <p className="text-xs text-slate-500">
+                Mensual: descuenta las ausencias injustificadas. Jornal: paga los días trabajados. Extra con 50% de recargo.
+                IPS 9% trabajador y 16,5% empleador. Aguinaldo: 1/12 del bruto. La revisa el contador antes de pagar.
+              </p>
+            </div>
+            <button type="button" className={BTN_PRIMARY} onClick={() => void descargar()}>
+              Descargar para Excel
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-sm">
+              <thead className="bg-slate-50/80 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                <tr>
+                  <th className="px-3 py-2.5">Empleado</th>
+                  <th className="px-3 py-2.5 text-right">Base</th>
+                  <th className="px-3 py-2.5 text-right">Desc. ausencias</th>
+                  <th className="px-3 py-2.5 text-right">Extras</th>
+                  <th className="px-3 py-2.5 text-right">Bruto</th>
+                  <th className="px-3 py-2.5 text-right">IPS 9%</th>
+                  <th className="px-3 py-2.5 text-right">Neto</th>
+                  <th className="px-3 py-2.5 text-right">IPS empleador</th>
+                  <th className="px-3 py-2.5 text-right">Aguinaldo</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {liq.map((f) => (
+                  <tr key={f.empleado_id}>
+                    <td className="px-3 py-2.5">
+                      <span className="block font-medium text-slate-800">{f.nombre}</span>
+                      <span className="block text-xs text-slate-400">
+                        {f.tipo_remuneracion === "jornal" ? "Jornal" : "Mensual"}
+                        {f.aviso ? <span className="ml-1 text-amber-700">· {f.aviso}</span> : null}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{gs(f.monto_base)}</td>
+                    <td className={`px-3 py-2.5 text-right tabular-nums ${f.descuento_ausencias ? "text-rose-600" : "text-slate-300"}`}>
+                      {f.descuento_ausencias ? `−${gs(f.descuento_ausencias)}` : "—"}
+                    </td>
+                    <td className={`px-3 py-2.5 text-right tabular-nums ${f.monto_extras ? "" : "text-slate-300"}`}>{f.monto_extras ? gs(f.monto_extras) : "—"}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-semibold">{gs(f.bruto)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">−{gs(f.ips_obrero)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-slate-900">{gs(f.neto)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-slate-500">{gs(f.ips_patronal)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-slate-500">{gs(f.aguinaldo_provision)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+// ─── Vacaciones y reposos ─────────────────────────────────────────────────
+
+type Saldo = {
+  empleado_id: string;
+  nombre: string;
+  fecha_ingreso: string | null;
+  antiguedad_anios: number | null;
+  dias_que_corresponden: number | null;
+  dias_tomados_anio: number;
+  dias_reposo_anio: number;
+};
+
+function Vacaciones({ puedeEditar }: { puedeEditar: boolean }) {
+  const anio = Number(ahoraPY().fecha.slice(0, 4));
+  const [saldos, setSaldos] = useState<Saldo[]>([]);
+  const [f, setF] = useState({ empleado_id: "", estado: "vacaciones", desde: ahoraPY().fecha, hasta: ahoraPY().fecha, observacion: "", justificada: true });
+  const [error, setError] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  const cargar = useCallback(async () => {
+    try {
+      setSaldos((await pedir<{ saldos: Saldo[] }>(`/api/rrhh/asistencia/vacaciones?anio=${anio}`)).saldos);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [anio]);
+
+  useEffect(() => {
+    void cargar();
+  }, [cargar]);
+
+  async function guardar() {
+    setGuardando(true);
+    setError(null);
+    setAviso(null);
+    try {
+      const d = await pedir<{ dias: number }>("/api/rrhh/asistencia/rango", { method: "POST", body: JSON.stringify(f) });
+      setAviso(`Cargados ${d.dias} día${d.dias === 1 ? "" : "s"}.`);
+      void cargar();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      {puedeEditar ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="mb-3 text-sm font-semibold text-slate-700">Cargar un período</h2>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <select className={INPUT} value={f.empleado_id} onChange={(e) => setF((x) => ({ ...x, empleado_id: e.target.value }))} aria-label="Empleado">
+              <option value="">Empleado…</option>
+              {saldos.map((s) => <option key={s.empleado_id} value={s.empleado_id}>{s.nombre}</option>)}
+            </select>
+            <select className={INPUT} value={f.estado} onChange={(e) => setF((x) => ({ ...x, estado: e.target.value }))} aria-label="Tipo">
+              <option value="vacaciones">Vacaciones</option>
+              <option value="reposo">Reposo</option>
+              <option value="permiso">Permiso</option>
+              <option value="ausente">Ausencia</option>
+            </select>
+            <input type="date" className={INPUT} value={f.desde} onChange={(e) => setF((x) => ({ ...x, desde: e.target.value }))} aria-label="Desde" />
+            <input type="date" className={INPUT} value={f.hasta} onChange={(e) => setF((x) => ({ ...x, hasta: e.target.value }))} aria-label="Hasta" />
+            <input className={INPUT} placeholder="Observación" value={f.observacion} onChange={(e) => setF((x) => ({ ...x, observacion: e.target.value }))} />
+          </div>
+          {f.estado === "ausente" ? (
+            <label className="mt-2 flex items-center gap-2 text-sm text-slate-600">
+              <input type="checkbox" checked={f.justificada} onChange={(e) => setF((x) => ({ ...x, justificada: e.target.checked }))} />
+              Ausencia justificada
+            </label>
+          ) : null}
+          {error ? <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
+          {aviso ? <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{aviso}</p> : null}
+          <button type="button" className={`${BTN_PRIMARY} mt-3`} disabled={guardando || !f.empleado_id} onClick={() => void guardar()}>
+            {guardando ? "Guardando…" : "Cargar período"}
+          </button>
+        </section>
+      ) : null}
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="mb-1 text-sm font-semibold text-slate-700">Vacaciones {anio}</h2>
+        <p className="mb-3 text-xs text-slate-500">
+          Por antigüedad: 12 días hasta 5 años, 18 de 5 a 10, 30 desde 10 (se ganan al cumplir el primer año). Hace falta la
+          fecha de ingreso de cada empleado.
+        </p>
+        <table className="w-full text-sm">
+          <thead className="text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
             <tr>
-              <th className="px-3 py-2.5">Empleado</th>
-              {cols.map((c) => (
-                <th key={c.k} className="px-3 py-2.5 text-center">
-                  {c.label}
-                </th>
-              ))}
-              <th className="px-3 py-2.5 text-right">Horas trabajadas</th>
+              <th className="py-2">Empleado</th>
+              <th className="py-2">Ingreso</th>
+              <th className="py-2 text-center">Le corresponden</th>
+              <th className="py-2 text-center">Tomados</th>
+              <th className="py-2 text-center">Quedan</th>
+              <th className="py-2 text-center">Reposo (días)</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {cargando ? (
-              <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-slate-400">Cargando…</td>
-              </tr>
-            ) : filas.length === 0 && !error ? (
-              <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-slate-500">Sin empleados ni registros en este mes.</td>
-              </tr>
-            ) : (
-              filas.map((r) => (
-                <tr key={r.empleado_id}>
-                  <td className="px-3 py-2.5">
-                    <span className="block font-medium text-slate-800">{r.nombre}</span>
-                    {r.cargo ? <span className="block text-xs text-slate-400">{r.cargo}</span> : null}
+            {saldos.map((s) => {
+              const quedan = s.dias_que_corresponden == null ? null : s.dias_que_corresponden - s.dias_tomados_anio;
+              return (
+                <tr key={s.empleado_id}>
+                  <td className="py-2 font-medium text-slate-800">{s.nombre}</td>
+                  <td className="py-2 text-xs text-slate-500">
+                    {s.fecha_ingreso ? `${new Date(`${s.fecha_ingreso}T12:00:00`).toLocaleDateString("es-PY")} (${s.antiguedad_anios} años)` : "Sin cargar"}
                   </td>
-                  {cols.map((c) => (
-                    <td
-                      key={c.k}
-                      className={`px-3 py-2.5 text-center tabular-nums ${
-                        Number(r[c.k]) === 0 ? "text-slate-300" : c.k === "ausente" || c.k === "tarde" ? "font-semibold text-rose-600" : "text-slate-700"
-                      }`}
-                    >
-                      {r[c.k] as number}
-                    </td>
-                  ))}
-                  <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">
-                    {horas(r.minutos)}
-                    {r.sin_salida > 0 ? (
-                      <span className="block text-[11px] text-amber-700">
-                        {r.sin_salida} día{r.sin_salida === 1 ? "" : "s"} sin salida
-                      </span>
-                    ) : null}
-                  </td>
+                  <td className="py-2 text-center tabular-nums">{s.dias_que_corresponden ?? "—"}</td>
+                  <td className="py-2 text-center tabular-nums">{s.dias_tomados_anio}</td>
+                  <td className={`py-2 text-center tabular-nums ${quedan != null && quedan < 0 ? "font-semibold text-rose-600" : ""}`}>{quedan ?? "—"}</td>
+                  <td className="py-2 text-center tabular-nums">{s.dias_reposo_anio}</td>
                 </tr>
-              ))
-            )}
+              );
+            })}
           </tbody>
         </table>
-      </div>
-    </section>
+      </section>
+    </div>
   );
 }
 
 // ─── Empleados ────────────────────────────────────────────────────────────
 
-const VACIO = { nombre: "", documento: "", cargo: "", telefono: "", horario_entrada: "", horario_salida: "" };
+const VACIO = {
+  nombre: "", documento: "", cargo: "", telefono: "", horario_entrada: "", horario_salida: "",
+  salario_base: "", tipo_remuneracion: "mensual", fecha_ingreso: "", aporta_ips: "si",
+};
 
 function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
   const [empleados, setEmpleados] = useState<Empleado[]>([]);
@@ -571,7 +804,7 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
     try {
       await pedir(editId ? `/api/rrhh/empleados/${editId}` : "/api/rrhh/empleados", {
         method: editId ? "PATCH" : "POST",
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, aporta_ips: form.aporta_ips === "si" }),
       });
       setForm(VACIO);
       setEditId(null);
@@ -602,6 +835,10 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
       telefono: emp.telefono ?? "",
       horario_entrada: emp.horario_entrada ?? "",
       horario_salida: emp.horario_salida ?? "",
+      salario_base: emp.salario_base != null ? String(emp.salario_base) : "",
+      tipo_remuneracion: emp.tipo_remuneracion ?? "mensual",
+      fecha_ingreso: emp.fecha_ingreso ?? "",
+      aporta_ips: emp.aporta_ips === false ? "no" : "si",
     });
   }
 
@@ -632,6 +869,28 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
             {campo("telefono", "Teléfono")}
             {campo("horario_entrada", "Hora de entrada", { type: "time" })}
             {campo("horario_salida", "Hora de salida", { type: "time" })}
+            {campo("fecha_ingreso", "Fecha de ingreso", { type: "date" })}
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500" htmlFor="emp-tipo">
+                Remuneración
+              </label>
+              <select id="emp-tipo" className={`${INPUT} w-full`} value={form.tipo_remuneracion}
+                onChange={(e) => setForm((f) => ({ ...f, tipo_remuneracion: e.target.value }))}>
+                <option value="mensual">Mensual</option>
+                <option value="jornal">Jornal (por día)</option>
+              </select>
+            </div>
+            {campo("salario_base", form.tipo_remuneracion === "jornal" ? "Jornal diario (Gs.)" : "Salario mensual (Gs.)", { inputMode: "numeric" })}
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500" htmlFor="emp-ips">
+                IPS
+              </label>
+              <select id="emp-ips" className={`${INPUT} w-full`} value={form.aporta_ips}
+                onChange={(e) => setForm((f) => ({ ...f, aporta_ips: e.target.value }))}>
+                <option value="si">Aporta al IPS</option>
+                <option value="no">No aporta</option>
+              </select>
+            </div>
           </div>
           <p className="mt-2 text-xs text-slate-400">
             Con la hora de entrada, la planilla marca &ldquo;Tarde&rdquo; sola a quien llega más de 10 minutos después.

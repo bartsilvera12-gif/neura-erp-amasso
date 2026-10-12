@@ -38,6 +38,22 @@ const TIPOS = [
   "otro",
 ] as const;
 
+/**
+ * Cómo se muestra cada tipo. `salon` es el Punto de venta: la Caja vende solo
+ * lo que hay en esa ubicación, y lo de Fábrica (un `deposito`) se transfiere
+ * antes de venderse.
+ */
+const TIPO_LABEL: Record<string, string> = {
+  deposito: "Depósito / Fábrica",
+  salon: "Punto de venta (Caja)",
+  pasillo: "Pasillo",
+  gondola: "Góndola",
+  estante: "Estante",
+  zona: "Zona",
+  otro: "Otro",
+  camion: "Camión",
+};
+
 const inputCls =
   "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#4FAEB2]/40 focus:border-[#4FAEB2] focus:outline-none";
 const labelCls =
@@ -271,7 +287,7 @@ export default function UbicacionesPage() {
               onChange={(e) => setTipo(e.target.value)}
               className={inputCls}
             >
-              {TIPOS.map((t) => <option key={t} value={t}>{t}</option>)}
+              {TIPOS.map((t) => <option key={t} value={t}>{TIPO_LABEL[t] ?? t}</option>)}
             </select>
           </div>
           <div>
@@ -370,7 +386,7 @@ export default function UbicacionesPage() {
                           aria-label="Tipo"
                           className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm outline-none focus:border-[#4FAEB2]"
                         >
-                          {TIPOS.map((t) => <option key={t} value={t}>{t}</option>)}
+                          {TIPOS.map((t) => <option key={t} value={t}>{TIPO_LABEL[t] ?? t}</option>)}
                         </select>
                       </td>
                       <td className="px-4 py-2">
@@ -425,7 +441,7 @@ export default function UbicacionesPage() {
                         u.nombre
                       )}
                     </td>
-                    <td className="px-4 py-3 text-slate-500">{u.tipo}</td>
+                    <td className="px-4 py-3 text-slate-500">{TIPO_LABEL[u.tipo] ?? u.tipo}</td>
                     <td className="px-4 py-3 text-slate-500">{parent?.nombre ?? "—"}</td>
                     <td className="px-4 py-3 text-right">
                       {(u.productos ?? 0) === 0 ? (

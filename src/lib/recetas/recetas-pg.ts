@@ -14,6 +14,9 @@ export type RecetaRow = {
   rendimiento_unidad: string | null;
   notas: string | null;
   activa: boolean;
+  /** Fracción (0.05 = 5%). Script 11. */
+  merma_esperada_pct?: number | null;
+  vida_util_dias?: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -145,6 +148,8 @@ export async function updateReceta(
     rendimiento_unidad: string | null;
     notas: string | null;
     activa: boolean;
+    merma_esperada_pct: number;
+    vida_util_dias: number | null;
   }>
 ) {
   const { data, error } = await sb
@@ -238,11 +243,15 @@ export async function listProductosVendiblesSinReceta(sb: AppSupabaseClient, emp
   // nacen con `controla_stock = true`, así que el filtro original no dejaba
   // ningún producto y la pantalla decía "primero creá un producto de tipo Menú"
   // sin que hubiera forma de crear uno.
+  //
+  // Con las clases de producto (script 11), se formula lo que se produce:
+  // productos terminados e intermedios (rellenos, masas base, galleta molida).
   const { data, error } = await sb
     .from("productos")
     .select("id, nombre, sku, precio_venta, unidad_medida")
     .eq("empresa_id", empresaId)
     .eq("activo", true)
+    .in("clase_producto", ["terminado", "intermedio"])
     .order("nombre");
   if (error) throw new Error(error.message);
   return (data ?? []).filter((p: { id: string }) => !usadosSet.has(p.id));
@@ -255,7 +264,7 @@ export async function listProductos(
 ) {
   let q = sb
     .from("productos")
-    .select("id, nombre, sku, precio_venta, costo_promedio, stock_actual, unidad_medida, es_insumo, es_vendible")
+    .select("id, nombre, sku, precio_venta, costo_promedio, stock_actual, unidad_medida, es_insumo, es_vendible, clase_producto")
     .eq("empresa_id", empresaId)
     .eq("activo", true)
     .order("nombre");
@@ -264,7 +273,10 @@ export async function listProductos(
   // en false, así que filtrar por él dejaba el combo de insumos vacío. Cualquier
   // producto activo puede ser insumo de una receta — en una panadería una masa
   // madre es a la vez producto e insumo de otra receta.
-  if (filtro === "insumos") q = q.eq("activo", true);
+  // Ingredientes: materia prima e intermedios. Los insumos de uso general
+  // (empaques, gas, limpieza) no van en la formulación: se controlan con el
+  // conteo físico (requerimiento de Amasso).
+  if (filtro === "insumos") q = q.in("clase_producto", ["materia_prima", "intermedio"]);
   const { data, error } = await q;
   if (error) throw new Error(error.message);
   return data ?? [];

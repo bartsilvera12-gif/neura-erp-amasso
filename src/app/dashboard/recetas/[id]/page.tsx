@@ -27,9 +27,13 @@ type Receta = {
   rendimiento_unidad: string | null;
   notas: string | null;
   activa: boolean;
+  /** Fracción (0.05 = 5%). */
+  merma_esperada_pct?: number | null;
+  vida_util_dias?: number | null;
 };
 
-const UNIDADES_RENDIMIENTO = ["UNIDAD", "PAQUETE", "PORCION", "FRASCO", "BOLSA", "DOCENA"];
+// KG primero: en Amasso las formulaciones se manejan en kilos (50 g = 0,05 kg).
+const UNIDADES_RENDIMIENTO = ["KG", "UNIDAD", "PAQUETE", "PORCION", "FRASCO", "BOLSA", "DOCENA"];
 const UNIDADES_INSUMO = ["G", "KG", "ML", "L", "UNIDAD"];
 type Item = {
   id: string;
@@ -239,6 +243,8 @@ export default function EditarRecetaPage() {
           rendimiento_unidad: receta.rendimiento_unidad,
           notas: receta.notas,
           activa: receta.activa,
+          merma_esperada_pct: Number(receta.merma_esperada_pct ?? 0),
+          vida_util_dias: receta.vida_util_dias ?? null,
         }),
       });
       const body = await res.json();
@@ -541,6 +547,8 @@ export default function EditarRecetaPage() {
         </div>
       )}
 
+      <CostoTeorico recetaId={id} version={`${costeo?.costo_total ?? 0}-${items.length}-${receta.merma_esperada_pct ?? 0}-${receta.rendimiento_cantidad}`} />
+
       {error && (
         <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700 mb-4">
           {error}
@@ -582,13 +590,13 @@ export default function EditarRecetaPage() {
             <label className="block text-xs font-medium text-gray-600 mb-1">Rendimiento (cantidad)</label>
             <input
               type="number"
-              step="1"
-              min="0.01"
+              step="any"
+              min="0.001"
               value={receta.rendimiento_cantidad}
               onChange={(e) => setReceta({ ...receta, rendimiento_cantidad: Number(e.target.value) || 1 })}
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
             />
-            <p className="mt-1 text-[11px] text-gray-400">¿Cuántas unidades produce?</p>
+            <p className="mt-1 text-[11px] text-gray-400">Rendimiento teórico: cuánto sale de un lote (ej. 10 kg).</p>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Unidad de rendimiento</label>
@@ -604,6 +612,31 @@ export default function EditarRecetaPage() {
               )}
             </select>
             <p className="mt-1 text-[11px] text-gray-400">paquetes, unidades, frascos…</p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Merma esperada (%)</label>
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              max="90"
+              value={receta.merma_esperada_pct == null ? "" : Math.round(Number(receta.merma_esperada_pct) * 1000) / 10}
+              onChange={(e) => setReceta({ ...receta, merma_esperada_pct: (Number(e.target.value) || 0) / 100 })}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            />
+            <p className="mt-1 text-[11px] text-gray-400">Lo que se pierde en el proceso. Agranda la materia prima de cada orden.</p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Vida útil (días)</label>
+            <input
+              type="number"
+              step="1"
+              min="0"
+              value={receta.vida_util_dias ?? ""}
+              onChange={(e) => setReceta({ ...receta, vida_util_dias: e.target.value === "" ? null : Math.max(0, Math.round(Number(e.target.value))) })}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            />
+            <p className="mt-1 text-[11px] text-gray-400">Con esto cada producción calcula su vencimiento.</p>
           </div>
           <div className="flex items-end pb-6">
             <label className="inline-flex items-center gap-2 text-sm">
@@ -1075,6 +1108,150 @@ export default function EditarRecetaPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+type CosteoTeoricoData = {
+  base: "promedio" | "ultima_compra";
+  rendimiento: number;
+  rendimiento_unidad: string | null;
+  merma_esperada: number;
+  costo_lote: number;
+  costo_unitario: number;
+  precio_venta: number;
+  margen_pct: number | null;
+  items: {
+    producto_id: string;
+    nombre: string;
+    clase: string;
+    cantidad: number;
+    unidad: string | null;
+    costo_unitario: number;
+    fuente: "promedio" | "ultima_compra" | "formulacion" | "sin_costo";
+    subcosto: number;
+  }[];
+  avisos: string[];
+};
+
+const FUENTE: Record<CosteoTeoricoData["items"][number]["fuente"], string> = {
+  promedio: "costo promedio",
+  ultima_compra: "última compra",
+  formulacion: "su formulación",
+  sin_costo: "sin costo",
+};
+
+/**
+ * Costo teórico de la formulación (requerimiento de Amasso). Se puede ver con
+ * el costo promedio de las materias primas o con el de su última compra. Los
+ * intermedios se costean con su propia formulación.
+ */
+function CostoTeorico({ recetaId, version }: { recetaId: string; version: string }) {
+  const [base, setBase] = useState<"promedio" | "ultima_compra">("promedio");
+  const [data, setData] = useState<CosteoTeoricoData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancel = false;
+    fetchWithSupabaseSession(`/api/recetas/${recetaId}/costeo?base=${base}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancel) return;
+        if (j?.success) {
+          setData(j.data.costeo);
+          setError(null);
+        } else setError(j?.error ?? "No se pudo calcular el costo.");
+      })
+      .catch((e) => !cancel && setError(e instanceof Error ? e.message : String(e)));
+    return () => {
+      cancel = true;
+    };
+  }, [recetaId, base, version]);
+
+  const gs = (n: number) => `Gs. ${Math.round(n).toLocaleString("es-PY")}`;
+
+  return (
+    <div className="mb-6 rounded-md border border-gray-200 bg-white p-5">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-700">Costo teórico de la formulación</h2>
+          <p className="text-xs text-gray-500">
+            Incluye la merma de cada ingrediente y la merma esperada. Los intermedios se costean con su propia formulación.
+          </p>
+        </div>
+        <div className="inline-flex rounded-lg border border-gray-200 p-0.5 text-xs">
+          {(["promedio", "ultima_compra"] as const).map((b) => (
+            <button
+              key={b}
+              type="button"
+              onClick={() => setBase(b)}
+              className={`rounded-md px-2.5 py-1 font-semibold ${base === b ? "bg-[#4FAEB2]/15 text-[#3F8E91]" : "text-gray-500"}`}
+            >
+              {b === "promedio" ? "Costo promedio" : "Última compra"}
+            </button>
+          ))}
+        </div>
+      </div>
+      {error ? <p className="text-sm text-red-700">{error}</p> : null}
+      {data ? (
+        <>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div>
+              <div className="text-xs uppercase text-gray-500">Costo del lote</div>
+              <div className="text-lg font-semibold text-gray-900">{gs(data.costo_lote)}</div>
+            </div>
+            <div>
+              <div className="text-xs uppercase text-gray-500">Costo por {data.rendimiento_unidad ? formatUnidad(data.rendimiento_unidad) : "unidad"}</div>
+              <div className="text-lg font-semibold text-gray-900">{gs(data.costo_unitario)}</div>
+              <div className="text-xs text-gray-500">
+                lote ÷ ({data.rendimiento} × {Math.round((1 - data.merma_esperada) * 1000) / 10}%)
+              </div>
+            </div>
+            <div>
+              <div className="text-xs uppercase text-gray-500">Precio de venta</div>
+              <div className="text-lg font-semibold text-gray-900">{data.precio_venta > 0 ? gs(data.precio_venta) : "—"}</div>
+            </div>
+            <div>
+              <div className="text-xs uppercase text-gray-500">Margen</div>
+              <div className={`text-lg font-semibold ${(data.margen_pct ?? 0) >= 0 ? "text-green-700" : "text-red-700"}`}>
+                {data.margen_pct == null ? "—" : `${data.margen_pct}%`}
+              </div>
+            </div>
+          </div>
+          <table className="mt-4 w-full text-sm">
+            <thead className="text-left text-[10px] uppercase tracking-wide text-gray-500">
+              <tr>
+                <th className="py-1">Ingrediente</th>
+                <th className="py-1 text-right">Cantidad</th>
+                <th className="py-1 text-right">Costo unitario</th>
+                <th className="py-1 text-right">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {data.items.map((it) => (
+                <tr key={it.producto_id}>
+                  <td className="py-1.5">
+                    {it.nombre}
+                    {it.clase === "intermedio" ? <span className="ml-1.5 rounded bg-violet-50 px-1 text-[10px] font-semibold text-violet-700">intermedio</span> : null}
+                  </td>
+                  <td className="py-1.5 text-right tabular-nums">
+                    {it.cantidad.toLocaleString("es-PY")} {it.unidad ? formatUnidad(it.unidad) : ""}
+                  </td>
+                  <td className="py-1.5 text-right tabular-nums">
+                    {gs(it.costo_unitario)} <span className="block text-[10px] text-gray-400">{FUENTE[it.fuente]}</span>
+                  </td>
+                  <td className="py-1.5 text-right tabular-nums">{gs(it.subcosto)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {data.avisos.length > 0 ? (
+            <ul className="mt-3 list-disc rounded-md bg-amber-50 py-2 pl-8 pr-3 text-xs text-amber-800">
+              {data.avisos.map((a) => <li key={a}>{a}</li>)}
+            </ul>
+          ) : null}
+        </>
+      ) : null}
     </div>
   );
 }

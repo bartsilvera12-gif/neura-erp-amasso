@@ -36,6 +36,11 @@ export type Empleado = {
   horario_entrada: string | null;
   horario_salida: string | null;
   activo: boolean;
+  /** Script 11: datos para liquidar. */
+  salario_base: number | null;
+  tipo_remuneracion: "mensual" | "jornal";
+  fecha_ingreso: string | null;
+  aporta_ips: boolean;
 };
 
 export type FilaPlanilla = {
@@ -46,6 +51,8 @@ export type FilaPlanilla = {
     entrada: string | null;
     salida: string | null;
     observacion: string | null;
+    /** Solo para ausencias: true justificada, false injustificada, null sin indicar. */
+    justificada: boolean | null;
   } | null;
 };
 
@@ -63,6 +70,10 @@ export type ResumenEmpleado = {
   minutos: number;
   /** Días con entrada pero sin salida: no suman horas y conviene revisarlos. */
   sin_salida: number;
+  ausente_justificada: number;
+  ausente_injustificada: number;
+  /** Minutos trabajados después de la hora de salida del empleado. */
+  minutos_extra: number;
 };
 
 function pool() {
@@ -109,7 +120,8 @@ export function estadoPorEntrada(entrada: string, horarioEntrada: string | null)
 
 const COLS_EMPLEADO = `id, nombre, documento, cargo, telefono,
   to_char(horario_entrada, 'HH24:MI') AS horario_entrada,
-  to_char(horario_salida, 'HH24:MI') AS horario_salida, activo`;
+  to_char(horario_salida, 'HH24:MI') AS horario_salida, activo,
+  salario_base::float8 AS salario_base, tipo_remuneracion, fecha_ingreso::text AS fecha_ingreso, aporta_ips`;
 
 // ─── Empleados ────────────────────────────────────────────────────────────
 
@@ -136,7 +148,23 @@ export type EmpleadoInput = {
   horario_entrada?: unknown;
   horario_salida?: unknown;
   activo?: unknown;
+  salario_base?: unknown;
+  tipo_remuneracion?: unknown;
+  fecha_ingreso?: unknown;
+  aporta_ips?: unknown;
 };
+
+function montoONull(v: unknown): number | null {
+  if (v == null || String(v).trim() === "") return null;
+  const n = Number(String(v).replace(/\./g, "").replace(",", "."));
+  if (!Number.isFinite(n) || n < 0) throw new AsistenciaError("Salario inválido.");
+  return Math.round(n);
+}
+
+function fechaONull(v: unknown): string | null {
+  if (v == null || String(v).trim() === "") return null;
+  return validarFecha(v);
+}
 
 function mensajeUnico(err: unknown): never {
   const e = err as { code?: string; constraint?: string };
@@ -156,8 +184,9 @@ export async function crearEmpleado(
   const t = quoteSchemaTable(assertAllowedChatDataSchema(schemaRaw), "empleados");
   try {
     const { rows } = await pool().query<Empleado>(
-      `INSERT INTO ${t} (empresa_id, nombre, documento, cargo, telefono, horario_entrada, horario_salida)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6::time, $7::time)
+      `INSERT INTO ${t} (empresa_id, nombre, documento, cargo, telefono, horario_entrada, horario_salida,
+                         salario_base, tipo_remuneracion, fecha_ingreso, aporta_ips)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6::time, $7::time, $8::numeric, $9, $10::date, $11::boolean)
        RETURNING ${COLS_EMPLEADO}`,
       [
         empresaId,
@@ -167,6 +196,10 @@ export async function crearEmpleado(
         textoONull(d.telefono, 40),
         horaONull(d.horario_entrada, "Horario de entrada"),
         horaONull(d.horario_salida, "Horario de salida"),
+        montoONull(d.salario_base),
+        d.tipo_remuneracion === "jornal" ? "jornal" : "mensual",
+        fechaONull(d.fecha_ingreso),
+        d.aporta_ips === false ? false : true,
       ]
     );
     return rows[0];
@@ -199,6 +232,10 @@ export async function actualizarEmpleado(
   if (d.horario_entrada !== undefined) add("horario_entrada", horaONull(d.horario_entrada, "Horario de entrada"), "::time");
   if (d.horario_salida !== undefined) add("horario_salida", horaONull(d.horario_salida, "Horario de salida"), "::time");
   if (typeof d.activo === "boolean") add("activo", d.activo, "::boolean");
+  if (d.salario_base !== undefined) add("salario_base", montoONull(d.salario_base), "::numeric");
+  if (d.tipo_remuneracion === "mensual" || d.tipo_remuneracion === "jornal") add("tipo_remuneracion", d.tipo_remuneracion);
+  if (d.fecha_ingreso !== undefined) add("fecha_ingreso", fechaONull(d.fecha_ingreso), "::date");
+  if (typeof d.aporta_ips === "boolean") add("aporta_ips", d.aporta_ips, "::boolean");
   if (sets.length === 0) throw new AsistenciaError("No hay nada para actualizar.");
   sets.push("updated_at = now()");
   params.push(id, empresaId);
@@ -232,7 +269,8 @@ export async function planillaDelDia(
     `SELECT e.id, e.nombre, e.documento, e.cargo, e.telefono,
             to_char(e.horario_entrada, 'HH24:MI') AS horario_entrada,
             to_char(e.horario_salida, 'HH24:MI') AS horario_salida, e.activo,
-            a.id AS a_id, a.estado, a.observacion,
+            e.salario_base::float8 AS salario_base, e.tipo_remuneracion, e.fecha_ingreso::text AS fecha_ingreso, e.aporta_ips,
+            a.id AS a_id, a.estado, a.observacion, a.justificada,
             to_char(a.hora_entrada AT TIME ZONE '${ZONA}', 'HH24:MI') AS entrada,
             to_char(a.hora_salida AT TIME ZONE '${ZONA}', 'HH24:MI') AS salida
        FROM ${te} e
@@ -254,9 +292,13 @@ export async function planillaDelDia(
       horario_entrada: r.horario_entrada,
       horario_salida: r.horario_salida,
       activo: r.activo,
+      salario_base: r.salario_base,
+      tipo_remuneracion: r.tipo_remuneracion,
+      fecha_ingreso: r.fecha_ingreso,
+      aporta_ips: r.aporta_ips,
     },
     asistencia: r.a_id
-      ? { id: r.a_id, estado: r.estado, entrada: r.entrada, salida: r.salida, observacion: r.observacion }
+      ? { id: r.a_id, estado: r.estado, entrada: r.entrada, salida: r.salida, observacion: r.observacion, justificada: r.justificada }
       : null,
   }));
 }
@@ -268,6 +310,8 @@ export type GuardarAsistenciaInput = {
   entrada?: unknown;
   salida?: unknown;
   observacion?: unknown;
+  /** Solo tiene sentido en una ausencia. */
+  justificada?: unknown;
 };
 
 /**
@@ -336,6 +380,12 @@ export async function guardarAsistencia(
   if (entrada !== undefined) push("hora_entrada", entrada, aTimestamp);
   if (salida !== undefined) push("hora_salida", salida, aTimestamp);
   if (trae("observacion")) push("observacion", textoONull(d.observacion, 300), (i) => `$${i}`);
+  if (trae("justificada")) {
+    push("justificada", typeof d.justificada === "boolean" ? d.justificada : null, (i) => `$${i}::boolean`);
+  } else if (estado && estado !== "ausente") {
+    // Fuera de "ausente" la marca no aplica: se limpia para que no quede colgada.
+    push("justificada", null, (i) => `$${i}::boolean`);
+  }
   if (cols.length === 0) throw new AsistenciaError("No hay nada para guardar.");
 
   try {
@@ -379,14 +429,21 @@ export async function resumenDelMes(
             count(*) FILTER (WHERE a.estado = 'reposo')     AS reposo,
             COALESCE(round(sum(extract(epoch FROM (a.hora_salida - a.hora_entrada)) / 60)
                      FILTER (WHERE a.hora_entrada IS NOT NULL AND a.hora_salida IS NOT NULL)), 0) AS minutos,
-            count(*) FILTER (WHERE a.hora_entrada IS NOT NULL AND a.hora_salida IS NULL) AS sin_salida
+            count(*) FILTER (WHERE a.hora_entrada IS NOT NULL AND a.hora_salida IS NULL) AS sin_salida,
+            count(*) FILTER (WHERE a.estado = 'ausente' AND a.justificada IS TRUE)     AS ausente_justificada,
+            count(*) FILTER (WHERE a.estado = 'ausente' AND a.justificada IS NOT TRUE) AS ausente_injustificada,
+            -- Extra: lo trabajado después de la hora de salida del empleado.
+            COALESCE(round(sum(GREATEST(0, extract(epoch FROM (
+              (a.hora_salida AT TIME ZONE '${ZONA}')::time - e.horario_salida)) / 60))
+              FILTER (WHERE a.hora_salida IS NOT NULL AND e.horario_salida IS NOT NULL
+                        AND (a.hora_salida AT TIME ZONE '${ZONA}')::date = a.fecha)), 0) AS minutos_extra
        FROM ${te} e
        LEFT JOIN ${ta} a
          ON a.empleado_id = e.id AND a.empresa_id = e.empresa_id
         AND a.fecha >= ($2 || '-01')::date
         AND a.fecha <  (($2 || '-01')::date + interval '1 month')
       WHERE e.empresa_id = $1::uuid
-      GROUP BY e.id, e.nombre, e.cargo, e.activo
+      GROUP BY e.id, e.nombre, e.cargo, e.activo, e.horario_salida
      HAVING e.activo = true OR count(a.id) > 0
       ORDER BY e.nombre`,
     [empresaId, mes]
@@ -403,5 +460,8 @@ export async function resumenDelMes(
     reposo: Number(r.reposo),
     minutos: Number(r.minutos),
     sin_salida: Number(r.sin_salida),
+    ausente_justificada: Number(r.ausente_justificada),
+    ausente_injustificada: Number(r.ausente_injustificada),
+    minutos_extra: Number(r.minutos_extra),
   }));
 }
