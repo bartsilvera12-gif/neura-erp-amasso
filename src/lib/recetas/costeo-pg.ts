@@ -60,7 +60,9 @@ export async function costeoFormulacion(
   schemaRaw: string,
   empresaId: string,
   recetaId: string,
-  base: BaseCosto
+  base: BaseCosto,
+  /** Valores en pantalla sin guardar; solo para la formulación pedida, no para sus intermedios. */
+  vistaPrevia: { rendimiento?: number; merma?: number } = {}
 ): Promise<CosteoFormulacion> {
   const pool = getChatPostgresPool();
   if (!pool) throw new Error("No hay conexión directa a Postgres.");
@@ -156,8 +158,11 @@ export async function costeoFormulacion(
         subcosto: r2(sub),
       });
     }
-    const rendimiento = n(r.rendimiento_cantidad) > 0 ? n(r.rendimiento_cantidad) : 1;
-    const mermaEsp = Math.min(0.95, Math.max(0, n(r.merma_esperada)));
+    const esLaPedida = rid === recetaId;
+    const rendBase = esLaPedida && vistaPrevia.rendimiento && vistaPrevia.rendimiento > 0 ? vistaPrevia.rendimiento : n(r.rendimiento_cantidad);
+    const rendimiento = rendBase > 0 ? rendBase : 1;
+    const mermaBase = esLaPedida && vistaPrevia.merma != null ? vistaPrevia.merma : n(r.merma_esperada);
+    const mermaEsp = Math.min(0.95, Math.max(0, mermaBase));
     const unitario = costoLote / (rendimiento * (1 - mermaEsp));
     const precio = n(r.precio_venta);
     return {

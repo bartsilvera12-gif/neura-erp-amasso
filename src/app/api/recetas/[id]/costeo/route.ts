@@ -17,7 +17,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const { id } = await params;
     const base = request.nextUrl.searchParams.get("base") === "ultima_compra" ? "ultima_compra" : "promedio";
     const schema = await fetchDataSchemaForEmpresaId(auth.empresa_id);
-    const costeo = await costeoFormulacion(schema, auth.empresa_id, id, base);
+    // Vista previa: la pantalla manda el rendimiento y la merma que tiene cargados,
+    // aunque todavía no se hayan guardado.
+    const num = (k: string) => {
+      const v = request.nextUrl.searchParams.get(k);
+      const n = v == null || v === "" ? NaN : Number(v);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    const costeo = await costeoFormulacion(schema, auth.empresa_id, id, base, {
+      rendimiento: num("rendimiento"),
+      merma: num("merma"),
+    });
     return NextResponse.json(successResponse({ costeo }));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

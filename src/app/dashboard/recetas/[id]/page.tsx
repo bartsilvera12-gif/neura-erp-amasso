@@ -122,6 +122,17 @@ export default function EditarRecetaPage() {
   const puedeEditar = puedeEditarRecetas(rol);
 
   const [receta, setReceta] = useState<Receta | null>(null);
+  /**
+   * Rendimiento, merma y vida útil se editan como texto. Con <input type="number">
+   * quedaba el cero adelante ("05") y el rendimiento no se podía borrar (volvía a 1):
+   * React no reescribe el campo cuando el número parseado no cambia. Lo tipeado
+   * se guarda tal cual y se pasa a número para el resto de la pantalla.
+   */
+  const [txt, setTxt] = useState({ rend: "1", merma: "", vida: "" });
+  const aNum = (v: string) => {
+    const n = Number(v.replace(",", "."));
+    return Number.isFinite(n) ? n : 0;
+  };
   const [items, setItems] = useState<Item[]>([]);
   const [costeo, setCosteo] = useState<Costeo | null>(null);
   const [insumos, setInsumos] = useState<Producto[]>([]);
@@ -198,6 +209,14 @@ export default function EditarRecetaPage() {
       return;
     }
     setReceta(recBody.data.receta);
+    {
+      const r = recBody.data.receta as Receta;
+      setTxt({
+        rend: String(r.rendimiento_cantidad ?? 1).replace(".", ","),
+        merma: r.merma_esperada_pct ? String(Math.round(Number(r.merma_esperada_pct) * 1000) / 10).replace(".", ",") : "",
+        vida: r.vida_util_dias != null ? String(r.vida_util_dias) : "",
+      });
+    }
     setItems(recBody.data.items ?? []);
     setCosteo(recBody.data.costeo ?? null);
     if (prodRes.ok && prodBody?.success) {
@@ -571,7 +590,13 @@ export default function EditarRecetaPage() {
         </div>
       )}
 
-      <CostoTeorico recetaId={id} version={`${costeo?.costo_total ?? 0}-${items.length}-${receta.merma_esperada_pct ?? 0}-${receta.rendimiento_cantidad}`} />
+      <CostoTeorico
+        recetaId={id}
+        version={`${costeo?.costo_total ?? 0}-${items.length}`}
+        rendimiento={receta.rendimiento_cantidad}
+        merma={Number(receta.merma_esperada_pct ?? 0)}
+        unidad={receta.rendimiento_unidad}
+      />
 
       {error && (
         <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700 mb-4">
@@ -613,11 +638,14 @@ export default function EditarRecetaPage() {
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Rendimiento (cantidad)</label>
             <input
-              type="number"
-              step="any"
-              min="0.001"
-              value={receta.rendimiento_cantidad}
-              onChange={(e) => setReceta({ ...receta, rendimiento_cantidad: Number(e.target.value) || 1 })}
+              inputMode="decimal"
+              value={txt.rend}
+              onChange={(e) => {
+                const v = e.target.value.replace(/[^0-9.,]/g, "");
+                setTxt((t) => ({ ...t, rend: v }));
+                if (aNum(v) > 0) setReceta({ ...receta, rendimiento_cantidad: aNum(v) });
+              }}
+              onBlur={() => setTxt((t) => ({ ...t, rend: aNum(t.rend) > 0 ? String(aNum(t.rend)).replace(".", ",") : String(receta.rendimiento_cantidad).replace(".", ",") }))}
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
             />
             <p className="mt-1 text-[11px] text-gray-400">Rendimiento teórico: cuánto sale de un lote (ej. 10 kg).</p>
@@ -640,12 +668,15 @@ export default function EditarRecetaPage() {
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Merma esperada (%)</label>
             <input
-              type="number"
-              step="0.1"
-              min="0"
-              max="90"
-              value={receta.merma_esperada_pct == null ? "" : Math.round(Number(receta.merma_esperada_pct) * 1000) / 10}
-              onChange={(e) => setReceta({ ...receta, merma_esperada_pct: (Number(e.target.value) || 0) / 100 })}
+              inputMode="decimal"
+              value={txt.merma}
+              placeholder="0"
+              onChange={(e) => {
+                const v = e.target.value.replace(/[^0-9.,]/g, "");
+                setTxt((t) => ({ ...t, merma: v }));
+                setReceta({ ...receta, merma_esperada_pct: Math.min(90, aNum(v)) / 100 });
+              }}
+              onBlur={() => setTxt((t) => ({ ...t, merma: t.merma === "" ? "" : String(Math.min(90, aNum(t.merma))).replace(".", ",") }))}
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
             />
             <p className="mt-1 text-[11px] text-gray-400">Lo que se pierde en el proceso. Agranda la materia prima de cada orden.</p>
@@ -653,11 +684,15 @@ export default function EditarRecetaPage() {
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Vida útil (días)</label>
             <input
-              type="number"
-              step="1"
-              min="0"
-              value={receta.vida_util_dias ?? ""}
-              onChange={(e) => setReceta({ ...receta, vida_util_dias: e.target.value === "" ? null : Math.max(0, Math.round(Number(e.target.value))) })}
+              inputMode="numeric"
+              value={txt.vida}
+              placeholder="Ej: 30"
+              onChange={(e) => {
+                const v = e.target.value.replace(/\D/g, "");
+                setTxt((t) => ({ ...t, vida: v }));
+                setReceta({ ...receta, vida_util_dias: v === "" ? null : Number(v) });
+              }}
+              onBlur={() => setTxt((t) => ({ ...t, vida: t.vida === "" ? "" : String(Number(t.vida)) }))}
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
             />
             <p className="mt-1 text-[11px] text-gray-400">Con esto cada producción calcula su vencimiento.</p>
@@ -1173,14 +1208,29 @@ const FUENTE: Record<CosteoTeoricoData["items"][number]["fuente"], string> = {
  * el costo promedio de las materias primas o con el de su última compra. Los
  * intermedios se costean con su propia formulación.
  */
-function CostoTeorico({ recetaId, version }: { recetaId: string; version: string }) {
+function CostoTeorico({
+  recetaId,
+  version,
+  rendimiento,
+  merma,
+  unidad,
+}: {
+  recetaId: string;
+  version: string;
+  /** Lo que hay en pantalla, aunque no se haya guardado: el costo responde al editar. */
+  rendimiento: number;
+  merma: number;
+  unidad: string | null;
+}) {
   const [base, setBase] = useState<"promedio" | "ultima_compra">("promedio");
   const [data, setData] = useState<CosteoTeoricoData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancel = false;
-    fetchWithSupabaseSession(`/api/recetas/${recetaId}/costeo?base=${base}`)
+    fetchWithSupabaseSession(
+      `/api/recetas/${recetaId}/costeo?base=${base}&rendimiento=${encodeURIComponent(rendimiento)}&merma=${encodeURIComponent(merma)}`
+    )
       .then((r) => r.json())
       .then((j) => {
         if (cancel) return;
@@ -1193,9 +1243,14 @@ function CostoTeorico({ recetaId, version }: { recetaId: string; version: string
     return () => {
       cancel = true;
     };
-  }, [recetaId, base, version]);
+  }, [recetaId, base, version, rendimiento, merma]);
 
   const gs = (n: number) => `Gs. ${Math.round(n).toLocaleString("es-PY")}`;
+  // Por qué el costo puede no moverse: sin costos en los ingredientes todo da 0,
+  // y sin compras las dos bases usan el promedio. Se dice en vez de dejar que
+  // parezca que los botones no andan.
+  const sinCostos = !!data && data.items.length > 0 && data.items.every((i) => i.costo_unitario === 0);
+  const sinCompras = !!data && base === "ultima_compra" && data.items.length > 0 && !data.items.some((i) => i.fuente === "ultima_compra");
 
   return (
     <div className="mb-6 rounded-md border border-gray-200 bg-white p-5">
@@ -1220,6 +1275,17 @@ function CostoTeorico({ recetaId, version }: { recetaId: string; version: string
         </div>
       </div>
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
+      {sinCostos ? (
+        <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Ningún ingrediente tiene costo todavía, por eso todo da Gs. 0 y la merma no lo cambia. El costo aparece cuando
+          se carga una compra de la materia prima (o se produce el intermedio).
+        </p>
+      ) : sinCompras ? (
+        <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Ninguno de estos ingredientes tiene compras registradas: con &ldquo;Última compra&rdquo; se usa el costo promedio,
+          por eso los valores son los mismos.
+        </p>
+      ) : null}
       {data ? (
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -1228,7 +1294,7 @@ function CostoTeorico({ recetaId, version }: { recetaId: string; version: string
               <div className="text-lg font-semibold text-gray-900">{gs(data.costo_lote)}</div>
             </div>
             <div>
-              <div className="text-xs uppercase text-gray-500">Costo por {data.rendimiento_unidad ? formatUnidad(data.rendimiento_unidad) : "unidad"}</div>
+              <div className="text-xs uppercase text-gray-500">Costo por {unidad ? formatUnidad(unidad) : data.rendimiento_unidad ? formatUnidad(data.rendimiento_unidad) : "unidad"}</div>
               <div className="text-lg font-semibold text-gray-900">{gs(data.costo_unitario)}</div>
               <div className="text-xs text-gray-500">
                 lote ÷ ({data.rendimiento} × {Math.round((1 - data.merma_esperada) * 1000) / 10}%)
