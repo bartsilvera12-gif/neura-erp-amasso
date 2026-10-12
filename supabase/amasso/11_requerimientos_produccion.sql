@@ -157,6 +157,10 @@ ALTER TABLE amasso.inventario_conteo_items ENABLE ROW LEVEL SECURITY;
 
 COMMIT;
 
+-- Las formulaciones se leen por PostgREST: sin esto no ve las columnas nuevas
+-- hasta que se reinicie. Solo recarga su caché; no cambia la lista de schemas.
+NOTIFY pgrst, 'reload schema';
+
 -- Verificación
 SELECT clase_producto, count(*) AS productos FROM amasso.productos GROUP BY 1 ORDER BY 1;
 SELECT estado, count(*) AS producciones FROM amasso.producciones GROUP BY 1 ORDER BY 1;
