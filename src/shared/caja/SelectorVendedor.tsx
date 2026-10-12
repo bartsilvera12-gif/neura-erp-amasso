@@ -12,6 +12,7 @@ type Vendedor = { id: string; nombre: string; comision_pct: number | null };
  */
 export default function SelectorVendedor({ caja }: { caja: CajaVenta }) {
   const [vendedores, setVendedores] = useState<Vendedor[]>([]);
+  const [cargado, setCargado] = useState(false);
 
   useEffect(() => {
     let cancel = false;
@@ -21,13 +22,23 @@ export default function SelectorVendedor({ caja }: { caja: CajaVenta }) {
         if (cancel || !j?.success) return;
         setVendedores(((j.data?.empleados ?? []) as Vendedor[]).filter((e) => Number(e.comision_pct) > 0));
       })
-      .catch(() => null);
+      .catch(() => null)
+      .finally(() => !cancel && setCargado(true));
     return () => {
       cancel = true;
     };
   }, []);
 
-  if (vendedores.length === 0) return null;
+  // Sin vendedores cargados se explica cómo tenerlos, en vez de no mostrar nada:
+  // QA buscaba el selector y no sabía que depende de la comisión del empleado.
+  if (vendedores.length === 0) {
+    if (!cargado) return null;
+    return (
+      <p className="text-xs text-slate-400">
+        Para elegir vendedor en la venta, cargale un % de comisión en RRHH › Asistencia › Empleados.
+      </p>
+    );
+  }
   return (
     <div>
       <label htmlFor="caja-vendedor" className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-slate-400">

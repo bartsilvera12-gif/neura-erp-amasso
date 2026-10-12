@@ -189,22 +189,22 @@ export default function MermasPage() {
           <p className="text-sm text-slate-400">Todavía no hay mermas registradas.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[680px] text-sm">
+            <table className="w-full min-w-[820px] text-sm">
               <thead className="text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                <tr><th className="py-2">Fecha</th><th className="py-2">Producto</th><th className="py-2 text-right">Cantidad</th><th className="py-2">Qué</th><th className="py-2">Destino</th><th className="py-2">Depósito</th><th className="py-2">Quién</th></tr>
+                <tr><th className="px-3 py-2 first:pl-0">Fecha</th><th className="px-3 py-2 first:pl-0">Producto</th><th className="px-3 py-2 text-right">Cantidad</th><th className="px-3 py-2 first:pl-0">Qué</th><th className="px-3 py-2 first:pl-0">Destino</th><th className="px-3 py-2 first:pl-0">Depósito</th><th className="px-3 py-2 first:pl-0">Quién</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {mermas.map((m) => (
                   <tr key={m.id}>
-                    <td className="py-2 text-xs tabular-nums">{new Date(m.fecha).toLocaleString("es-PY", { dateStyle: "short", timeStyle: "short" })}</td>
-                    <td className="py-2">{m.producto_nombre}{m.motivo ? <span className="block text-xs text-slate-400">{m.motivo}</span> : null}</td>
-                    <td className="py-2 text-right tabular-nums">{formatCantidad(m.cantidad, "")}</td>
-                    <td className="py-2 text-xs">{ORIGEN[m.origen] ?? m.origen}</td>
-                    <td className="py-2 text-xs">
+                    <td className="py-2 pl-0 pr-3 text-xs tabular-nums whitespace-nowrap">{new Date(m.fecha).toLocaleString("es-PY", { dateStyle: "short", timeStyle: "short" })}</td>
+                    <td className="px-3 py-2">{m.producto_nombre}{m.motivo ? <span className="block text-xs text-slate-400">{m.motivo}</span> : null}</td>
+                    <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{formatCantidad(m.cantidad, "")}</td>
+                    <td className="px-3 py-2 text-xs">{ORIGEN[m.origen] ?? m.origen}</td>
+                    <td className="px-3 py-2 text-xs">
                       {m.destino === "desecho" ? "Desecho" : `Galleta molida → ${m.destino_nombre ?? "?"}${m.cantidad_destino ? ` (${formatCantidad(m.cantidad_destino, "")})` : ""}`}
                     </td>
-                    <td className="py-2 text-xs">{m.ubicacion_nombre ?? "—"}</td>
-                    <td className="py-2 text-xs">{m.usuario_nombre ?? "—"}</td>
+                    <td className="px-3 py-2 text-xs">{m.ubicacion_nombre ?? "—"}</td>
+                    <td className="px-3 py-2 text-xs">{m.usuario_nombre ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>

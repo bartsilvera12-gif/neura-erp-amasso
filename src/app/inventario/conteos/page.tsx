@@ -252,7 +252,7 @@ function DetalleConteo({ id, puedeCerrar, onVolver }: { id: string; puedeCerrar:
         <p className="mt-1 text-sm text-slate-500">
           {cerrado
             ? "Conteo cerrado: las diferencias ya se ajustaron."
-            : "Cargá lo que contaste. Lo que dejes vacío no se ajusta. Toda diferencia necesita un motivo."}
+            : "Cargá lo que contaste. Si contaste menos de lo que dice el sistema, faltan (rojo) y el ajuste descuenta; si contaste más, sobran (ocre) y el ajuste suma. Lo que dejes vacío no se ajusta. Toda diferencia necesita un motivo."}
         </p>
       </div>
 
@@ -321,8 +321,11 @@ function DetalleConteo({ id, puedeCerrar, onVolver }: { id: string; puedeCerrar:
                       aria-label={`Contado de ${i.producto_nombre}`}
                     />
                   </td>
-                  <td className={`px-3 py-2 text-right tabular-nums font-semibold ${!d ? "text-slate-300" : d < 0 ? "text-rose-600" : "text-emerald-600"}`}>
-                    {d == null ? "—" : d === 0 ? "0" : `${d > 0 ? "+" : ""}${formatCantidad(d, i.unidad_medida)}`}
+                  {/* "Faltan" / "Sobran" en palabras: con +/- QA leía al revés (contó 12 y
+                      el sistema tenía 11, y esperaba "-1"). La cuenta es contado − sistema:
+                      si contaste más, sobran y el ajuste suma; si contaste menos, faltan. */}
+                  <td className={`px-3 py-2 text-right tabular-nums font-semibold whitespace-nowrap ${!d ? "text-slate-300" : d < 0 ? "text-rose-600" : "text-amber-700"}`}>
+                    {d == null ? "—" : d === 0 ? "Coincide" : d < 0 ? `Faltan ${formatCantidad(-d, i.unidad_medida)}` : `Sobran ${formatCantidad(d, i.unidad_medida)}`}
                   </td>
                   <td className="px-3 py-2">
                     <input
