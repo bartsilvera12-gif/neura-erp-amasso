@@ -343,16 +343,23 @@ export default function EditarProductoPage() {
                       : "border-slate-200 bg-white hover:border-[#4FAEB2]/50"
                   }`}
                 >
-                  <span className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-800">
-                    {CLASE_INFO[c].etiqueta}
-                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${claseVendible(c) ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                      {claseVendible(c) ? "Se vende" : "No se vende"}
-                    </span>
+                  <span className="block text-sm font-semibold text-slate-800">{CLASE_INFO[c].etiqueta}</span>
+                  <span
+                    className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      claseVendible(c) ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {claseVendible(c) ? "Se vende en Caja" : "No se vende"}
                   </span>
-                  <span className="mt-0.5 block text-xs text-slate-500">{CLASE_INFO[c].detalle}</span>
+                  <span className="mt-1 block text-xs text-slate-500">{CLASE_INFO[c].detalle}</span>
                 </button>
               ))}
             </div>
+            <p className={`mt-2 text-sm font-medium ${claseVendible(clase) ? "text-emerald-700" : "text-slate-600"}`}>
+              {claseVendible(clase)
+                ? `${CLASE_INFO[clase].etiqueta}: se vende en la Caja y lleva precio de venta.`
+                : `${CLASE_INFO[clase].etiqueta}: no se vende y no lleva precio de venta.`}
+            </p>
           </div>
 
           <div>
@@ -529,7 +536,6 @@ export default function EditarProductoPage() {
                   onChange={handleCostoChange}
                   className={inputClass}
                   decimals={false}
-                  required
                 />
               </div>
               {!esMateriaPrima && (<>

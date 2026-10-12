@@ -430,16 +430,23 @@ export default function NuevoProductoPage() {
                       : "border-slate-200 bg-white hover:border-[#4FAEB2]/50"
                   }`}
                 >
-                  <span className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-800">
-                    {CLASE_INFO[c].etiqueta}
-                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${claseVendible(c) ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                      {claseVendible(c) ? "Se vende" : "No se vende"}
-                    </span>
+                  <span className="block text-sm font-semibold text-slate-800">{CLASE_INFO[c].etiqueta}</span>
+                  <span
+                    className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      claseVendible(c) ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {claseVendible(c) ? "Se vende en Caja" : "No se vende"}
                   </span>
-                  <span className="mt-0.5 block text-xs text-slate-500">{CLASE_INFO[c].detalle}</span>
+                  <span className="mt-1 block text-xs text-slate-500">{CLASE_INFO[c].detalle}</span>
                 </button>
               ))}
             </div>
+            <p className={`mt-2 text-sm font-medium ${claseVendible(clase) ? "text-emerald-700" : "text-slate-600"}`}>
+              {claseVendible(clase)
+                ? `${CLASE_INFO[clase].etiqueta}: se vende en la Caja y lleva precio de venta.`
+                : `${CLASE_INFO[clase].etiqueta}: no se vende y no lleva precio de venta.`}
+            </p>
           </div>
 
           {/* Nombre */}
@@ -577,15 +584,19 @@ export default function NuevoProductoPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
 
               <div>
-                <label className={labelClass}>Costo promedio (Gs.)</label>
+                <label className={labelClass}>Costo promedio (Gs.) <span className="font-normal text-gray-400">opcional</span></label>
                 <MontoInput
                   value={form.costo_promedio}
                   onChange={handleCostoChange}
                   placeholder="Ej: 52000"
                   className={inputClass}
                   decimals={false}
-                  required
                 />
+                {/* Opcional: al crear un producto todavía no se sabe su costo. Lo fija
+                    la primera compra (materia prima, insumo, reventa) o la primera
+                    producción (terminado, intermedio). Antes era obligatorio y no se
+                    podía dar de alta una materia prima sin inventar un costo. */}
+                <p className="mt-1.5 text-xs text-gray-400">Si lo dejás vacío, lo calcula la primera compra o producción.</p>
               </div>
 
               {!esMateriaPrima && (<>
@@ -757,30 +768,28 @@ export default function NuevoProductoPage() {
           <div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div>
-                <label className={labelClass}>Stock actual</label>
+                <label className={labelClass}>Stock actual <span className="font-normal text-gray-400">opcional</span></label>
                 <input
                   type="number"
                   name="stock_actual"
                   value={form.stock_actual}
                   onChange={handleChange}
-                  placeholder="Ej: 50"
+                  placeholder="0"
                   className={inputClass}
                   min={0}
-                  required
                 />
               </div>
 
               <div>
-                <label className={labelClass}>Stock mínimo</label>
+                <label className={labelClass}>Stock mínimo <span className="font-normal text-gray-400">opcional</span></label>
                 <input
                   type="number"
                   name="stock_minimo"
                   value={form.stock_minimo}
                   onChange={handleChange}
-                  placeholder="Ej: 10"
+                  placeholder="0"
                   className={inputClass}
                   min={0}
-                  required
                 />
               </div>
             </div>
