@@ -221,6 +221,29 @@ export default function EditarRecetaPage() {
     return insumos.filter((p) => !usados.has(p.id));
   }, [insumos, items]);
 
+  // Unidades que sirven para el insumo elegido: las de su misma familia (kilos
+  // con gramos, litros con mililitros, unidades solas). Antes se ofrecían todas
+  // y elegir Kg para un insumo que se controla en Unidad rechazaba el agregado
+  // con un aviso arriba de la página, fuera de la vista: parecía que el botón
+  // no hacía nada.
+  const unidadDelInsumo = insumosDisponibles.find((x) => x.id === newInsumoId)?.unidad_medida ?? null;
+  const unidadesPosibles = useMemo(
+    () => {
+      if (!unidadDelInsumo) return UNIDADES_INSUMO;
+      const f = UNIDADES_INSUMO.filter((u) => unidadesCompatibles(u, unidadDelInsumo));
+      // Unidad que no está en la lista (CAJA, DOCENA…): se ofrece la propia.
+      return f.length > 0 ? f : [unidadDelInsumo];
+    },
+    [unidadDelInsumo]
+  );
+  useEffect(() => {
+    if (!unidadDelInsumo) return;
+    setNewUnidad((u) => (u && unidadesCompatibles(u, unidadDelInsumo) ? u : unidadesPosibles[0] ?? ""));
+  }, [unidadDelInsumo, unidadesPosibles]);
+
+  /** Error del bloque "Agregar insumo", mostrado al lado del botón. */
+  const [errorAgregar, setErrorAgregar] = useState<string | null>(null);
+
   useEffect(() => {
     if (insumosDisponibles.length > 0 && !newInsumoId) {
       setNewInsumoId(insumosDisponibles[0].id);
@@ -270,9 +293,10 @@ export default function EditarRecetaPage() {
     if (newUnidad.trim() && unidadInsumo && !unidadesCompatibles(newUnidad, unidadInsumo)) {
       const fam = familiaUnidad(unidadInsumo);
       const sugerencia = fam === "masa" ? "Grs o Kg" : fam === "volumen" ? "Ml o Lts" : "Unidad";
-      setError(`La unidad seleccionada no es compatible con la unidad del insumo. Este insumo se controla en ${formatUnidad(unidadInsumo)}; usá ${sugerencia}.`);
+      setErrorAgregar(`La unidad no es compatible: este insumo se controla en ${formatUnidad(unidadInsumo)}; usá ${sugerencia}.`);
       return;
     }
+    setErrorAgregar(null);
     setAddingItem(true);
     try {
       const res = await fetchWithSupabaseSession(`/api/recetas/${id}/items`, {
@@ -287,7 +311,7 @@ export default function EditarRecetaPage() {
       });
       const body = await res.json();
       if (!res.ok || body?.success === false) {
-        setError(body?.error ?? "Error al agregar item");
+        setErrorAgregar(body?.error ?? "No se pudo agregar el insumo.");
         return;
       }
       setNewInsumoId("");
@@ -866,8 +890,8 @@ export default function EditarRecetaPage() {
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm bg-white"
                 >
                   <option value="">— Elegí —</option>
-                  {UNIDADES_INSUMO.map((u) => <option key={u} value={u}>{formatUnidad(u)}</option>)}
-                  {newUnidad && !UNIDADES_INSUMO.includes(newUnidad) && <option value={newUnidad}>{formatUnidad(newUnidad)}</option>}
+                  {unidadesPosibles.map((u) => <option key={u} value={u}>{formatUnidad(u)}</option>)}
+                  {newUnidad && !unidadesPosibles.includes(newUnidad) && <option value={newUnidad}>{formatUnidad(newUnidad)}</option>}
                 </select>
               </div>
               <div>
@@ -901,6 +925,9 @@ export default function EditarRecetaPage() {
               >
                 <Plus className="h-4 w-4" /> {addingItem ? "Agregando…" : "Agregar insumo"}
               </button>
+              {errorAgregar ? (
+                <p className="md:col-span-5 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{errorAgregar}</p>
+              ) : null}
             </div>
           )}
         </div>

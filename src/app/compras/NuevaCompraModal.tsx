@@ -153,7 +153,9 @@ export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => 
   const total = bruto;
   const margenVenta = precioVentaNum > 0 && costoUnitarioPYG > 0
     ? ((precioVentaNum - costoUnitarioPYG) / precioVentaNum) * 100 : null;
-  const calculosListos = subtotal > 0 && precioVentaNum > 0;
+  // Materia prima e insumos no llevan precio de venta: sin esto el botón Guardar
+  // quedaba deshabilitado hasta cargar un precio que esas clases no tienen.
+  const calculosListos = subtotal > 0 && (!llevaPrecio || precioVentaNum > 0);
   const productoSel = productos.find((p) => p.id === form.producto_id);
 
   const provOpts: ComboOption[] = useMemo(

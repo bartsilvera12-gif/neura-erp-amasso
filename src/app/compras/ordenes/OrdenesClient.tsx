@@ -259,8 +259,11 @@ function ModalOrden({ proveedores, productos, cuentas, onClose, onSaved, onProve
   return (
     <Overlay onClose={onClose} titulo="Nueva orden de compra">
       {error && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div><label className="text-xs font-semibold text-slate-500">Proveedor *</label>
+      {/* Los tres campos con la misma estructura (rótulo en bloque + control con
+          mt-1) para que queden a la misma altura. Antes las fechas iban dentro de
+          un <label> en línea y quedaban más arriba que el proveedor. */}
+      <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-3">
+        <div><label className="block text-xs font-semibold text-slate-500">Proveedor *</label>
           <div className="mt-1"><SmartCombobox options={proveedores} value={proveedorId} onChange={setProveedorId} placeholder="(Elegir proveedor)"
             createLabel="Cargar proveedor nuevo" onCreate={(q) => setNuevoProv(q)} /></div>
           {nuevoProv !== null && (
@@ -274,10 +277,10 @@ function ModalOrden({ proveedores, productos, cuentas, onClose, onSaved, onProve
               }}
             />
           )}</div>
-        <label className="text-xs font-semibold text-slate-500">Fecha
-          <FechaSelect value={fecha} onChange={(e) => setFecha(e.target.value)} className={`mt-1 ${INPUT}`} /></label>
-        <label className="text-xs font-semibold text-slate-500">Fecha estimada de entrega
-          <FechaSelect value={fechaEstimada} onChange={(e) => setFechaEstimada(e.target.value)} className={`mt-1 ${INPUT}`} /></label>
+        <div><label htmlFor="oc-fecha" className="block text-xs font-semibold text-slate-500">Fecha</label>
+          <div className="mt-1"><FechaSelect id="oc-fecha" value={fecha} onChange={(e) => setFecha(e.target.value)} className={INPUT} /></div></div>
+        <div><label htmlFor="oc-fecha-entrega" className="block text-xs font-semibold text-slate-500">Fecha estimada de entrega</label>
+          <div className="mt-1"><FechaSelect id="oc-fecha-entrega" value={fechaEstimada} onChange={(e) => setFechaEstimada(e.target.value)} className={INPUT} /></div></div>
       </div>
 
       <div className="mt-4 space-y-3">
