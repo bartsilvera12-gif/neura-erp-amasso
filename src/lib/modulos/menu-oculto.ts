@@ -17,7 +17,9 @@
  */
 // Recetas: oculta del menú a pedido (7-oct-2026). La pantalla sigue andando
 // por URL (/dashboard/recetas); para volver a mostrarla, sacarla de acá.
-export const ITEMS_OCULTOS_EN_MENU: ReadonlySet<string> = new Set<string>(["recetas"]);
+// Agenda y Cobranzas: ocultos a pedido de Amasso (requerimientos, oct-2026).
+// No venden a crédito por ahora, así que Cobranzas no tiene uso.
+export const ITEMS_OCULTOS_EN_MENU: ReadonlySet<string> = new Set<string>(["recetas", "agenda", "cobranzas"]);
 
 /**
  * Prefijos de ruta que no se ofrecen en la navegación mobile.

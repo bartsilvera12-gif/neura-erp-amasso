@@ -28,6 +28,7 @@ import NuevoClienteRapido from "@/shared/caja/NuevoClienteRapido";
 import { useTecladoVirtual } from "@/shared/hooks/useTecladoVirtual";
 import { clienteNombre } from "@/lib/clientes/storage";
 import SelectorCantidad from "@/shared/caja/SelectorCantidad";
+import AvisoStockFlotante from "@/shared/caja/AvisoStockFlotante";
 import MiniaturaProducto from "@/components/inventario/MiniaturaProducto";
 import TicketVenta from "@/shared/caja/TicketVenta";
 import { useSoloCaja } from "@/shared/hooks/useSoloCaja";
@@ -79,6 +80,7 @@ export default function CajaMobile() {
 
   return (
     <div className="flex min-h-full flex-col bg-[#F8FAFC]">
+      <AvisoStockFlotante aviso={caja.avisoStock} />
       <Encabezado caja={caja} compacto={teclado} />
 
       {/* El pb reserva el lugar de la barra fija de abajo. Cuando esa barra no
@@ -481,6 +483,7 @@ function PasoProductos({ caja }: { caja: CajaVenta }) {
                     cantidad={cantidad}
                     cambiarCantidad={caja.cambiarCantidad}
                     fijarCantidad={caja.fijarCantidad}
+                      alerta={caja.avisoStock?.productoId === p.id}
                   />
                 </div>
               </li>
@@ -532,6 +535,7 @@ function PasoResumen({ caja }: { caja: CajaVenta }) {
                   cantidad={item.cantidad}
                   cambiarCantidad={caja.cambiarCantidad}
                   fijarCantidad={caja.fijarCantidad}
+                  alerta={caja.avisoStock?.productoId === item.producto.id}
                   size="sm"
                 />
 

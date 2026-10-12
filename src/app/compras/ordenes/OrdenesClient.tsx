@@ -8,6 +8,7 @@ import { getProveedores } from "@/lib/proveedores/storage";
 import { getProductos } from "@/lib/inventario/storage";
 import CuentaCombobox from "@/components/contabilidad/CuentaCombobox";
 import SmartCombobox, { type ComboOption } from "@/components/ui/SmartCombobox";
+import NuevoProveedorInline from "@/components/proveedores/NuevoProveedorInline";
 import { FechaSelect } from "@/components/ui/FechaSelect";
 
 /* ── tipos ─────────────────────────────────────────────────────────────── */
@@ -191,6 +192,7 @@ export default function OrdenesClient() {
 
       {modalAbierto && (
         <ModalOrden proveedores={proveedores} productos={productos} cuentas={cuentas}
+          onProveedorCreado={(p) => setProveedores((prev) => [...prev, p].sort((a, b) => a.label.localeCompare(b.label)))}
           onClose={() => setModalAbierto(false)} onSaved={() => { setModalAbierto(false); cargar(); }} />
       )}
       {detalle && (
@@ -202,11 +204,14 @@ export default function OrdenesClient() {
 }
 
 /* ── modal: nueva orden ────────────────────────────────────────────────── */
-function ModalOrden({ proveedores, productos, cuentas, onClose, onSaved }: {
+function ModalOrden({ proveedores, productos, cuentas, onClose, onSaved, onProveedorCreado }: {
   proveedores: ComboOption[]; productos: ComboOption[]; cuentas: CuentaContableOpcion[];
+  onProveedorCreado: (p: ComboOption) => void;
   onClose: () => void; onSaved: () => void;
 }) {
   const [proveedorId, setProveedorId] = useState<string | null>(null);
+  /** `null` = cerrado; string = abierto con ese nombre precargado. */
+  const [nuevoProv, setNuevoProv] = useState<string | null>(null);
   const [fecha, setFecha] = useState(hoy());
   const [fechaEstimada, setFechaEstimada] = useState("");
   const [observaciones, setObservaciones] = useState("");
@@ -256,7 +261,19 @@ function ModalOrden({ proveedores, productos, cuentas, onClose, onSaved }: {
       {error && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div><label className="text-xs font-semibold text-slate-500">Proveedor *</label>
-          <div className="mt-1"><SmartCombobox options={proveedores} value={proveedorId} onChange={setProveedorId} placeholder="(Elegir proveedor)" /></div></div>
+          <div className="mt-1"><SmartCombobox options={proveedores} value={proveedorId} onChange={setProveedorId} placeholder="(Elegir proveedor)"
+            createLabel="Cargar proveedor nuevo" onCreate={(q) => setNuevoProv(q)} /></div>
+          {nuevoProv !== null && (
+            <NuevoProveedorInline
+              nombreInicial={nuevoProv}
+              onCancelar={() => setNuevoProv(null)}
+              onCreado={(p) => {
+                onProveedorCreado({ id: String(p.id), label: p.nombre, sub: p.ruc ? `RUC ${p.ruc}` : null });
+                setProveedorId(String(p.id));
+                setNuevoProv(null);
+              }}
+            />
+          )}</div>
         <label className="text-xs font-semibold text-slate-500">Fecha
           <FechaSelect value={fecha} onChange={(e) => setFecha(e.target.value)} className={`mt-1 ${INPUT}`} /></label>
         <label className="text-xs font-semibold text-slate-500">Fecha estimada de entrega

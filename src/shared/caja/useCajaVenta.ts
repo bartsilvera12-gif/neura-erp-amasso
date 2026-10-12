@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { precioSegunLista, type ListaPrecio } from "@/lib/ventas/listas-precio";
 import { useRepartos } from "@/shared/hooks/useRepartos";
 import { useUsuarioActual } from "@/shared/hooks/useUsuarioActual";
@@ -25,6 +25,9 @@ import type {
  *
  * Pasos: cliente → productos → resumen → pago → comprobante.
  */
+/** Último intento de vender más de lo que hay en stock. */
+export type AvisoStock = { productoId: string; nombre: string; max: number; unidad: string; n: number };
+
 export type PasoCaja = "cliente" | "productos" | "resumen" | "pago" | "listo";
 
 export const PASOS_CAJA: { id: PasoCaja; label: string }[] = [
@@ -167,9 +170,33 @@ export function useCajaVenta() {
     [carrito]
   );
 
+  /**
+   * Aviso de "no hay más stock". Antes la cantidad se topeaba en silencio y el
+   * cajero no entendía por qué no subía. Se muestra flotante unos segundos y
+   * marca en rojo el campo de ese producto. `n` cambia en cada intento para
+   * que el aviso se reinicie aunque sea el mismo producto.
+   */
+  const [avisoStock, setAvisoStock] = useState<AvisoStock | null>(null);
+  const avisarStock = useCallback((p: Producto) => {
+    setAvisoStock((prev) => ({
+      productoId: p.id,
+      nombre: p.nombre,
+      max: p.stock_actual,
+      unidad: p.unidad_medida,
+      n: (prev?.n ?? 0) + 1,
+    }));
+  }, []);
+  useEffect(() => {
+    if (!avisoStock) return;
+    const t = setTimeout(() => setAvisoStock(null), 4000);
+    return () => clearTimeout(t);
+  }, [avisoStock]);
+
   /** Suma (o resta, con delta negativo) respetando el stock disponible. */
   const cambiarCantidad = useCallback((producto: Producto, delta: number) => {
     setError(null);
+    const enCarrito = carrito.find((i) => i.producto.id === producto.id)?.cantidad ?? 0;
+    if (delta > 0 && enCarrito + delta > producto.stock_actual) avisarStock(producto);
     setCarrito((prev) => {
       const idx = prev.findIndex((i) => i.producto.id === producto.id);
       const actual = idx === -1 ? 0 : prev[idx].cantidad;
@@ -188,10 +215,11 @@ export function useCajaVenta() {
       copia[idx] = { ...copia[idx], cantidad: siguiente };
       return copia;
     });
-  }, []);
+  }, [carrito, avisarStock]);
 
   const fijarCantidad = useCallback((producto: Producto, cantidad: number) => {
     setError(null);
+    if (cantidad > producto.stock_actual) avisarStock(producto);
     // Un producto pesable conserva los decimales: 1,350 KG es una venta normal.
     // Uno discreto se sigue redondeando para abajo, porque media caja no existe.
     const limpia = normalizarCantidad(
@@ -206,7 +234,7 @@ export function useCajaVenta() {
       copia[idx] = { ...copia[idx], cantidad: limpia };
       return copia;
     });
-  }, []);
+  }, [avisarStock]);
 
   const quitarItem = useCallback((productoId: string) => {
     setCarrito((prev) => prev.filter((i) => i.producto.id !== productoId));
@@ -568,6 +596,7 @@ export function useCajaVenta() {
     cantidadDe,
     cambiarCantidad,
     fijarCantidad,
+    avisoStock,
     quitarItem,
     cambiarIva,
     setMoneda,

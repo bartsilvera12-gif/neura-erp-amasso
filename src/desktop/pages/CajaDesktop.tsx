@@ -34,6 +34,7 @@ import { compartirComprobante } from "@/lib/ventas/compartir-comprobante";
 import { esFacturaLegal, fechaHora, type DatosComprobante } from "@/lib/ventas/comprobante";
 import { clienteNombre } from "@/lib/clientes/storage";
 import SelectorCantidad from "@/shared/caja/SelectorCantidad";
+import AvisoStockFlotante from "@/shared/caja/AvisoStockFlotante";
 import MiniaturaProducto from "@/components/inventario/MiniaturaProducto";
 import { esPesable, formatCantidad } from "@/lib/inventario/unidades";
 import { formatGs, useCajaVenta, type CajaVenta } from "@/shared/caja/useCajaVenta";
@@ -70,6 +71,7 @@ export default function CajaDesktop() {
 
   return (
     <div className="mx-auto max-w-[1400px] p-6">
+      <AvisoStockFlotante aviso={caja.avisoStock} />
       <header className="mb-5 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Caja</h1>
@@ -196,6 +198,7 @@ function Catalogo({ caja }: { caja: CajaVenta }) {
                       cantidad={cantidad}
                       cambiarCantidad={caja.cambiarCantidad}
                       fijarCantidad={caja.fijarCantidad}
+                      alerta={caja.avisoStock?.productoId === p.id}
                     />
                   ) : (
                     <button

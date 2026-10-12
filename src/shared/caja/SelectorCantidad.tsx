@@ -26,6 +26,8 @@ export type SelectorCantidadProps = {
   fijarCantidad: (producto: Producto, cantidad: number) => void;
   /** `sm` para el renglón del carrito, `md` para la lista de productos. */
   size?: "sm" | "md";
+  /** Se intentó pasar el stock: el campo se pinta de rojo mientras dura el aviso. */
+  alerta?: boolean;
 };
 
 export default function SelectorCantidad(props: SelectorCantidadProps) {
@@ -38,9 +40,11 @@ function BotonesUnidad({
   cantidad,
   cambiarCantidad,
   size = "md",
+  alerta = false,
 }: SelectorCantidadProps) {
   const chico = size === "sm";
   const boton = chico ? "h-7 w-7" : "h-9 w-9";
+  const enTope = cantidad >= producto.stock_actual;
   const icono = chico ? "h-3.5 w-3.5" : "h-4 w-4";
 
   return (
@@ -55,18 +59,20 @@ function BotonesUnidad({
         <Minus className={icono} />
       </button>
       <span
-        className={`text-center font-bold tabular-nums text-slate-900 ${
-          chico ? "w-6 text-xs" : "w-7 text-sm"
-        }`}
+        className={`rounded-md text-center font-bold tabular-nums transition-colors ${
+          alerta ? "bg-rose-100 text-rose-700 ring-2 ring-rose-400" : "text-slate-900"
+        } ${chico ? "w-7 text-xs" : "w-8 text-sm"}`}
       >
         {cantidad}
       </span>
       <button
         type="button"
+        // No se deshabilita en el tope: tocarlo tiene que mostrar el aviso de
+        // stock, no quedarse quieto sin explicar por qué.
         onClick={() => cambiarCantidad(producto, 1)}
-        disabled={cantidad >= producto.stock_actual}
         aria-label={`Agregar una unidad de ${producto.nombre}`}
-        className={`${boton} flex items-center justify-center rounded-lg text-white disabled:opacity-30`}
+        title={enTope ? `Máximo disponible: ${producto.stock_actual}` : undefined}
+        className={`${boton} flex items-center justify-center rounded-lg text-white ${enTope ? "opacity-40" : ""}`}
         style={{ backgroundColor: TEAL }}
       >
         <Plus className={icono} />
@@ -80,6 +86,7 @@ function EntradaPeso({
   cantidad,
   fijarCantidad,
   size = "md",
+  alerta = false,
 }: SelectorCantidadProps) {
   const unidad = producto.unidad_medida;
 
@@ -106,7 +113,13 @@ function EntradaPeso({
         aria-label={`Cantidad de ${producto.nombre} en ${unidad}`}
         className={`rounded-lg border text-center font-bold tabular-nums outline-none focus:ring-2 focus:ring-[#4FAEB2] ${
           chico ? "h-7 w-16 text-xs" : "h-9 w-20 text-sm"
-        } ${cantidad > 0 ? "border-[#4FAEB2] text-slate-900" : "border-slate-200 text-slate-500"}`}
+        } ${
+          alerta
+            ? "border-rose-400 bg-rose-50 text-rose-700 ring-2 ring-rose-300"
+            : cantidad > 0
+              ? "border-[#4FAEB2] text-slate-900"
+              : "border-slate-200 text-slate-500"
+        }`}
       />
       <span className={`font-semibold text-slate-400 ${chico ? "text-[10px]" : "text-xs"}`}>
         {unidad}

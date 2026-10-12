@@ -127,7 +127,20 @@ const MENU_STRUCTURE: MenuItem[] = [
     href: "/dashboard/monitoreo",
     icon: Activity,
   },
-  { key: "ventas", slug: "ventas", label: "Caja", href: "/ventas", icon: ShoppingCart },
+  // Caja abre directo la venta nueva (pedido de Amasso): es lo que se usa el
+  // 95% de las veces. El historial y el arqueo quedan como subítems.
+  {
+    key: "ventas",
+    slug: "ventas",
+    label: "Caja",
+    href: "/ventas/nueva",
+    icon: ShoppingCart,
+    children: [
+      { label: "Nueva venta", href: "/ventas/nueva" },
+      { label: "Ventas registradas", href: "/ventas", exactMatch: true },
+      { label: "Arqueo de caja", href: "/ventas/arqueo" },
+    ],
+  },
   { key: "inventario", slug: "inventario", label: "Inventario", href: "/inventario", icon: Package, children: [
     { label: "Productos", href: "/inventario" },
     { label: "Movimientos", href: "/inventario/movimientos" },
@@ -139,7 +152,7 @@ const MENU_STRUCTURE: MenuItem[] = [
     // consume la materia prima y ahí mismo entrega el producto terminado.
     key: "recetas",
     slug: "recetas",
-    label: "Recetas",
+    label: "Formulaciones e insumos",
     href: "/dashboard/recetas",
     icon: ChefHat,
   },

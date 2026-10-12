@@ -294,7 +294,9 @@ export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => 
               <div>
                 <label className={LABEL}>Proveedor <span className="text-red-500">*</span></label>
                 <SmartCombobox options={provOpts} value={form.proveedor_id || null}
-                  onChange={(id) => set({ proveedor_id: id ?? "" })} placeholder="Seleccionar proveedor…" />
+                  onChange={(id) => set({ proveedor_id: id ?? "" })} placeholder="Seleccionar proveedor…"
+                  createLabel="Cargar proveedor nuevo"
+                  onCreate={(q) => { setNvProv(true); if (q) setFProv((p) => ({ ...p, nombre: q.toUpperCase() })); }} />
                 {!nvProv ? (
                   <button type="button" onClick={() => setNvProv(true)}
                     className="mt-1.5 text-[11px] text-slate-400 underline underline-offset-2 transition-colors hover:text-[#3F8E91]">

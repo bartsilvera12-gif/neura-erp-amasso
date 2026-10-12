@@ -18,6 +18,7 @@ export interface ComboOption {
  */
 export default function SmartCombobox({
   options, value, onChange, placeholder = "(Elegir)", allowClear = true, disabled = false,
+  onCreate, createLabel = "Crear nuevo",
 }: {
   options: ComboOption[];
   value: string | null;
@@ -25,6 +26,12 @@ export default function SmartCombobox({
   placeholder?: string;
   allowClear?: boolean;
   disabled?: boolean;
+  /**
+   * Opción "+ Crear nuevo" dentro de la lista. Recibe lo que se estaba
+   * buscando, para precargarlo como nombre.
+   */
+  onCreate?: (busqueda: string) => void;
+  createLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -77,6 +84,14 @@ export default function SmartCombobox({
             />
           </div>
           <ul className="max-h-56 overflow-y-auto py-1 text-sm">
+            {onCreate && (
+              <li className="border-b border-slate-100">
+                <button type="button" onClick={() => { onCreate(q.trim()); setOpen(false); }}
+                  className="w-full px-3 py-2 text-left font-semibold text-[#3F8E91] hover:bg-[#4FAEB2]/10">
+                  + {createLabel}{q.trim() ? `: "${q.trim()}"` : ""}
+                </button>
+              </li>
+            )}
             {allowClear && (
               <li>
                 <button type="button" onClick={() => { onChange(null); setOpen(false); }}
