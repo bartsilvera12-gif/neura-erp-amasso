@@ -129,6 +129,8 @@ export default function EditarRecetaPage() {
    * se guarda tal cual y se pasa a número para el resto de la pantalla.
    */
   const [txt, setTxt] = useState({ rend: "1", merma: "", vida: "" });
+  /** "05" → "5" mientras se tipea; "0,5" queda igual (es un decimal). */
+  const sinCerosAdelante = (v: string) => v.replace(/^0+(?=\d)/, "");
   const aNum = (v: string) => {
     const n = Number(v.replace(",", "."));
     return Number.isFinite(n) ? n : 0;
@@ -641,7 +643,7 @@ export default function EditarRecetaPage() {
               inputMode="decimal"
               value={txt.rend}
               onChange={(e) => {
-                const v = e.target.value.replace(/[^0-9.,]/g, "");
+                const v = sinCerosAdelante(e.target.value.replace(/[^0-9.,]/g, ""));
                 setTxt((t) => ({ ...t, rend: v }));
                 if (aNum(v) > 0) setReceta({ ...receta, rendimiento_cantidad: aNum(v) });
               }}
@@ -672,7 +674,7 @@ export default function EditarRecetaPage() {
               value={txt.merma}
               placeholder="0"
               onChange={(e) => {
-                const v = e.target.value.replace(/[^0-9.,]/g, "");
+                const v = sinCerosAdelante(e.target.value.replace(/[^0-9.,]/g, ""));
                 setTxt((t) => ({ ...t, merma: v }));
                 setReceta({ ...receta, merma_esperada_pct: Math.min(90, aNum(v)) / 100 });
               }}
@@ -688,7 +690,7 @@ export default function EditarRecetaPage() {
               value={txt.vida}
               placeholder="Ej: 30"
               onChange={(e) => {
-                const v = e.target.value.replace(/\D/g, "");
+                const v = sinCerosAdelante(e.target.value.replace(/\D/g, ""));
                 setTxt((t) => ({ ...t, vida: v }));
                 setReceta({ ...receta, vida_util_dias: v === "" ? null : Number(v) });
               }}
