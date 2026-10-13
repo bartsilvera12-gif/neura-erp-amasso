@@ -210,12 +210,11 @@ const MENU_STRUCTURE: MenuItem[] = [
     key: "usuarios",
     slug: "usuarios",
     label: "RRHH",
-    href: "/usuarios",
+    // RRHH es del personal (empleados, asistencia, sueldos), no de las cuentas
+    // del ERP: los usuarios del sistema están en Configuración.
+    href: "/usuarios/asistencia",
     icon: UserCog,
-    children: [
-      { label: "Usuarios del sistema", href: "/usuarios", exactMatch: true },
-      { label: "Asistencia", href: "/usuarios/asistencia" },
-    ],
+    children: [{ label: "Empleados y asistencia", href: "/usuarios/asistencia" }],
   },
   {
     // Soporte: la visibilidad la da el módulo, pero el permiso real es de rol
@@ -249,6 +248,7 @@ const MENU_STRUCTURE: MenuItem[] = [
     href: "/configuracion",
     icon: Settings,
     children: [
+      { label: "Usuarios del sistema", href: "/usuarios", exactMatch: true },
       { label: "Plan de cuentas", href: "/configuracion/plan-de-cuentas" },
       { label: "Bancos", href: "/configuracion/bancos" },
       { label: "Configuración contable", href: "/configuracion/contable" },

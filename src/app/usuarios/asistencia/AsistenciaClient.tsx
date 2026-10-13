@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { apiFetch } from "@/lib/api/fetch-with-supabase-session";
 import { useIsAdmin } from "@/lib/auth/use-is-admin";
 import { DiaModal, Marcaciones } from "./Marcaciones";
@@ -175,12 +174,10 @@ export default function AsistenciaClient() {
           <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-[#4FAEB2] shadow-[0_0_0_3px_rgba(79,174,178,0.18)]" />
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#4FAEB2]">RRHH</p>
         </div>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">Asistencia</h1>
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">Empleados y asistencia</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Entrada, salida y ausencias del personal.{" "}
-          <Link href="/usuarios" className="text-[#3F8E91] hover:underline">
-            Usuarios del sistema →
-          </Link>
+          Empleados, entrada, salida y ausencias del personal. Los empleados no son usuarios del sistema: no tienen
+          cuenta ni contraseña.
         </p>
       </div>
 
