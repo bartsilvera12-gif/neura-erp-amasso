@@ -1,5 +1,6 @@
 import { getChatPostgresPool, quoteSchemaTable } from "@/lib/supabase/chat-pg-pool";
 import { assertAllowedChatDataSchema } from "@/lib/supabase/chat-data-schema";
+import { hashPin } from "./pin";
 
 /**
  * Empleados y asistencia (RRHH).
@@ -43,6 +44,10 @@ export type Empleado = {
   aporta_ips: boolean;
   /** % de comisión sobre lo vendido. Si tiene, aparece como vendedor en la Caja. */
   comision_pct: number | null;
+  /** Script 14: código para marcar asistencia (solo lo ve un administrador). */
+  codigo: string | null;
+  /** Tiene PIN de marcación. El PIN en sí nunca sale de la base. */
+  tiene_pin: boolean;
 };
 
 export type FilaPlanilla = {
@@ -55,6 +60,9 @@ export type FilaPlanilla = {
     observacion: string | null;
     /** Solo para ausencias: true justificada, false injustificada, null sin indicar. */
     justificada: boolean | null;
+    /** Script 14: minutos de pausa del día, sacados de las marcaciones. */
+    minutos_break: number;
+    minutos_almuerzo: number;
   } | null;
 };
 
@@ -68,7 +76,7 @@ export type ResumenEmpleado = {
   permiso: number;
   vacaciones: number;
   reposo: number;
-  /** Minutos trabajados en los días con entrada y salida. */
+  /** Minutos trabajados en los días con entrada y salida, sin breaks ni almuerzo. */
   minutos: number;
   /** Días con entrada pero sin salida: no suman horas y conviene revisarlos. */
   sin_salida: number;
@@ -124,7 +132,7 @@ const COLS_EMPLEADO = `id, nombre, documento, cargo, telefono,
   to_char(horario_entrada, 'HH24:MI') AS horario_entrada,
   to_char(horario_salida, 'HH24:MI') AS horario_salida, activo,
   salario_base::float8 AS salario_base, tipo_remuneracion, fecha_ingreso::text AS fecha_ingreso, aporta_ips,
-  comision_pct::float8 AS comision_pct`;
+  comision_pct::float8 AS comision_pct, codigo, (pin_hash IS NOT NULL) AS tiene_pin`;
 
 // ─── Empleados ────────────────────────────────────────────────────────────
 
@@ -156,7 +164,27 @@ export type EmpleadoInput = {
   fecha_ingreso?: unknown;
   aporta_ips?: unknown;
   comision_pct?: unknown;
+  codigo?: unknown;
+  /** PIN nuevo (4 a 6 números). */
+  pin?: unknown;
+  /** true: se le quita el PIN. */
+  quitar_pin?: unknown;
 };
+
+function codigoONull(v: unknown): string | null {
+  const s = textoONull(v, 20);
+  if (!s) return null;
+  const c = s.toUpperCase().replace(/\s+/g, "");
+  if (!/^[A-Z0-9-]{1,20}$/.test(c)) throw new AsistenciaError("El código de empleado solo puede tener letras, números y guiones.");
+  return c;
+}
+
+function pinONull(v: unknown): string | null {
+  if (v == null || String(v).trim() === "") return null;
+  const s = String(v).trim();
+  if (!/^\d{4,6}$/.test(s)) throw new AsistenciaError("El PIN tiene que ser de 4 a 6 números.");
+  return hashPin(s);
+}
 
 function pctONull(v: unknown): number | null {
   if (v == null || String(v).trim() === "") return null;
@@ -182,6 +210,9 @@ function mensajeUnico(err: unknown): never {
   if (e?.code === "23505" && String(e.constraint ?? "").includes("documento")) {
     throw new AsistenciaError("Ya hay un empleado con ese documento.", 409);
   }
+  if (e?.code === "23505" && String(e.constraint ?? "").includes("codigo")) {
+    throw new AsistenciaError("Ya hay otro empleado con ese código.", 409);
+  }
   throw err;
 }
 
@@ -196,8 +227,8 @@ export async function crearEmpleado(
   try {
     const { rows } = await pool().query<Empleado>(
       `INSERT INTO ${t} (empresa_id, nombre, documento, cargo, telefono, horario_entrada, horario_salida,
-                         salario_base, tipo_remuneracion, fecha_ingreso, aporta_ips, comision_pct)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6::time, $7::time, $8::numeric, $9, $10::date, $11::boolean, $12::numeric)
+                         salario_base, tipo_remuneracion, fecha_ingreso, aporta_ips, comision_pct, codigo, pin_hash)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6::time, $7::time, $8::numeric, $9, $10::date, $11::boolean, $12::numeric, $13, $14)
        RETURNING ${COLS_EMPLEADO}`,
       [
         empresaId,
@@ -212,6 +243,8 @@ export async function crearEmpleado(
         fechaONull(d.fecha_ingreso),
         d.aporta_ips === false ? false : true,
         pctONull(d.comision_pct),
+        codigoONull(d.codigo),
+        pinONull(d.pin),
       ]
     );
     return rows[0];
@@ -249,6 +282,9 @@ export async function actualizarEmpleado(
   if (d.fecha_ingreso !== undefined) add("fecha_ingreso", fechaONull(d.fecha_ingreso), "::date");
   if (typeof d.aporta_ips === "boolean") add("aporta_ips", d.aporta_ips, "::boolean");
   if (d.comision_pct !== undefined) add("comision_pct", pctONull(d.comision_pct), "::numeric");
+  if (d.codigo !== undefined) add("codigo", codigoONull(d.codigo));
+  if (d.quitar_pin === true) add("pin_hash", null);
+  else if (d.pin !== undefined && String(d.pin ?? "").trim() !== "") add("pin_hash", pinONull(d.pin));
   if (sets.length === 0) throw new AsistenciaError("No hay nada para actualizar.");
   sets.push("updated_at = now()");
   params.push(id, empresaId);
@@ -283,7 +319,8 @@ export async function planillaDelDia(
             to_char(e.horario_entrada, 'HH24:MI') AS horario_entrada,
             to_char(e.horario_salida, 'HH24:MI') AS horario_salida, e.activo,
             e.salario_base::float8 AS salario_base, e.tipo_remuneracion, e.fecha_ingreso::text AS fecha_ingreso, e.aporta_ips,
-            e.comision_pct::float8 AS comision_pct,
+            e.comision_pct::float8 AS comision_pct, e.codigo, (e.pin_hash IS NOT NULL) AS tiene_pin,
+            a.minutos_break, a.minutos_almuerzo,
             a.id AS a_id, a.estado, a.observacion, a.justificada,
             to_char(a.hora_entrada AT TIME ZONE '${ZONA}', 'HH24:MI') AS entrada,
             to_char(a.hora_salida AT TIME ZONE '${ZONA}', 'HH24:MI') AS salida
@@ -311,9 +348,14 @@ export async function planillaDelDia(
       fecha_ingreso: r.fecha_ingreso,
       aporta_ips: r.aporta_ips,
       comision_pct: r.comision_pct,
+      codigo: r.codigo,
+      tiene_pin: r.tiene_pin,
     },
     asistencia: r.a_id
-      ? { id: r.a_id, estado: r.estado, entrada: r.entrada, salida: r.salida, observacion: r.observacion, justificada: r.justificada }
+      ? {
+          id: r.a_id, estado: r.estado, entrada: r.entrada, salida: r.salida, observacion: r.observacion, justificada: r.justificada,
+          minutos_break: Number(r.minutos_break ?? 0), minutos_almuerzo: Number(r.minutos_almuerzo ?? 0),
+        }
       : null,
   }));
 }
@@ -442,7 +484,9 @@ export async function resumenDelMes(
             count(*) FILTER (WHERE a.estado = 'permiso')    AS permiso,
             count(*) FILTER (WHERE a.estado = 'vacaciones') AS vacaciones,
             count(*) FILTER (WHERE a.estado = 'reposo')     AS reposo,
-            COALESCE(round(sum(extract(epoch FROM (a.hora_salida - a.hora_entrada)) / 60)
+            -- Trabajado = salida − entrada − breaks − almuerzo (script 14).
+            COALESCE(round(sum(extract(epoch FROM (a.hora_salida - a.hora_entrada)) / 60
+                               - a.minutos_break - a.minutos_almuerzo)
                      FILTER (WHERE a.hora_entrada IS NOT NULL AND a.hora_salida IS NOT NULL)), 0) AS minutos,
             count(*) FILTER (WHERE a.hora_entrada IS NOT NULL AND a.hora_salida IS NULL) AS sin_salida,
             count(*) FILTER (WHERE a.estado = 'ausente' AND a.justificada IS TRUE)     AS ausente_justificada,

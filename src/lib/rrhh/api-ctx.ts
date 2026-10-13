@@ -28,6 +28,10 @@ export async function ctxRrhh(request: NextRequest, opts: { escribir?: boolean }
   return {
     empresaId,
     schema,
+    esAdmin: esRolAdminEmpresa(ctx.auth.rol),
+    usuarioNombre: ctx.auth.nombre ?? ctx.auth.user?.email ?? null,
+    /** Identifica la sesión para limitar intentos de marcación fallidos. */
+    claveSesion: `u:${ctx.auth.user?.id ?? ctx.auth.user?.email ?? "anon"}`,
     /** Id del usuario en el schema, para `registrado_por`. */
     async usuarioId(): Promise<string | null> {
       const yo = await usuarioDelSchema({
@@ -47,9 +51,9 @@ export function respuestaDeError(err: unknown, contexto: string) {
   }
   const e = err as { code?: string; message?: string };
   // Tablas todavía no creadas: el script 09 no se corrió.
-  if (e?.code === "42P01") {
+  if (e?.code === "42P01" || e?.code === "42703") {
     return NextResponse.json(
-      errorResponse("Falta crear las tablas de RRHH (script supabase/amasso/09_rrhh_asistencia.sql)."),
+      errorResponse("Faltan tablas de RRHH: correr los scripts de supabase/amasso (09 y 14)."),
       { status: 500 }
     );
   }

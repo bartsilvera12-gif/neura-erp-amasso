@@ -4,10 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api/fetch-with-supabase-session";
 import { useIsAdmin } from "@/lib/auth/use-is-admin";
+import { DiaModal, Marcaciones } from "./Marcaciones";
 
 /**
- * RRHH › Asistencia. Tres vistas:
- *  - Planilla del día: cada empleado con su estado, entrada y salida.
+ * RRHH › Asistencia. Vistas:
+ *  - Planilla del día: cada empleado con su estado, entrada y salida. Las
+ *    horas salen de lo que marcó cada empleado ("Marcar asistencia", arriba);
+ *    se corrigen desde el detalle del día, con motivo.
+ *  - Marcaciones: cada marcación, jornadas sin salida y exportación (admin).
  *  - Resumen del mes: días por estado y horas trabajadas, por empleado.
  *  - Empleados: la nómina a la que se le toma asistencia.
  *
@@ -30,6 +34,8 @@ type Empleado = {
   fecha_ingreso: string | null;
   aporta_ips: boolean;
   comision_pct: number | null;
+  codigo: string | null;
+  tiene_pin: boolean;
 };
 
 type Fila = {
@@ -37,6 +43,8 @@ type Fila = {
   asistencia: {
     id: string; estado: Estado; entrada: string | null; salida: string | null; observacion: string | null;
     justificada: boolean | null;
+    minutos_break: number;
+    minutos_almuerzo: number;
   } | null;
 };
 
@@ -150,8 +158,15 @@ async function pedir<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export default function AsistenciaClient() {
-  const [vista, setVista] = useState<"planilla" | "resumen" | "vacaciones" | "empleados">("planilla");
+  const [vista, setVista] = useState<"planilla" | "marcaciones" | "resumen" | "vacaciones" | "empleados">("planilla");
   const { isAdmin, loaded } = useIsAdmin();
+  const [empleados, setEmpleados] = useState<{ id: string; nombre: string }[]>([]);
+  useEffect(() => {
+    if (vista !== "marcaciones") return;
+    pedir<{ empleados: Empleado[] }>("/api/rrhh/empleados?todos=1")
+      .then((d) => setEmpleados(d.empleados.map((e) => ({ id: e.id, nombre: e.nombre }))))
+      .catch(() => null);
+  }, [vista]);
 
   return (
     <div className="space-y-6 pb-10">
@@ -171,11 +186,12 @@ export default function AsistenciaClient() {
 
       <div role="tablist" className="inline-flex flex-wrap rounded-xl border border-slate-200 bg-slate-50 p-1">
         {([
-          { id: "planilla", label: "Planilla del día" },
-          { id: "resumen", label: "Resumen y liquidación" },
-          { id: "vacaciones", label: "Vacaciones y reposos" },
-          { id: "empleados", label: "Empleados" },
-        ] as const).map((t) => (
+          { id: "planilla", label: "Planilla del día", admin: false },
+          { id: "marcaciones", label: "Marcaciones", admin: true },
+          { id: "resumen", label: "Resumen y liquidación", admin: false },
+          { id: "vacaciones", label: "Vacaciones y reposos", admin: false },
+          { id: "empleados", label: "Empleados", admin: false },
+        ] as const).filter((t) => !t.admin || isAdmin).map((t) => (
           <button
             key={t.id}
             type="button"
@@ -193,11 +209,13 @@ export default function AsistenciaClient() {
 
       {loaded && !isAdmin ? (
         <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Estás en modo consulta: marcar asistencia y editar empleados lo hace un administrador.
+          Estás en modo consulta: corregir la asistencia y editar empleados lo hace un administrador. Para marcar tu
+          entrada o salida usá el botón &ldquo;Marcar asistencia&rdquo; de arriba.
         </p>
       ) : null}
 
       {vista === "planilla" ? <Planilla puedeEditar={isAdmin} irAEmpleados={() => setVista("empleados")} /> : null}
+      {vista === "marcaciones" && isAdmin ? <Marcaciones empleados={empleados} /> : null}
       {vista === "resumen" ? <ResumenMes esAdmin={isAdmin} /> : null}
       {vista === "vacaciones" ? <Vacaciones puedeEditar={isAdmin} /> : null}
       {vista === "empleados" ? <Empleados puedeEditar={isAdmin} /> : null}
@@ -258,13 +276,7 @@ function Planilla({ puedeEditar, irAEmpleados }: { puedeEditar: boolean; irAEmpl
     return c;
   }, [filas]);
 
-  /** Marca presente (o tarde, según el horario) a todos los que no tienen nada. */
-  async function todosPresentes() {
-    const pendientes = filas.filter((f) => !f.asistencia && f.empleado.activo);
-    for (const f of pendientes) {
-      await guardar(f.empleado.id, { entrada: f.empleado.horario_entrada ?? ahoraPY().hora });
-    }
-  }
+  const [dia, setDia] = useState<string | null>(null);
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -305,14 +317,10 @@ function Planilla({ puedeEditar, irAEmpleados }: { puedeEditar: boolean; irAEmpl
 
       {error ? <p className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
-      {puedeEditar && conteo.sin_marcar > 0 && !cargando ? (
-        <div className="mb-3">
-          <button type="button" className={BTN_GHOST} onClick={() => void todosPresentes()} disabled={guardando !== null}>
-            Marcar presentes a los {conteo.sin_marcar} sin marcar
-          </button>
-          <span className="ml-2 text-xs text-slate-400">Con su hora de entrada habitual. Después corregí a quien faltó.</span>
-        </div>
-      ) : null}
+      <p className="mb-3 text-xs text-slate-400">
+        Las horas son las que marcó cada empleado con &ldquo;Marcar asistencia&rdquo;.
+        {puedeEditar ? " Para corregirlas, tocá la hora: queda registrado el motivo." : ""}
+      </p>
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[760px] text-sm">
@@ -322,17 +330,18 @@ function Planilla({ puedeEditar, irAEmpleados }: { puedeEditar: boolean; irAEmpl
               <th className="px-3 py-2.5">Estado</th>
               <th className="px-3 py-2.5">Entrada</th>
               <th className="px-3 py-2.5">Salida</th>
+              <th className="px-3 py-2.5">Pausas</th>
               <th className="px-3 py-2.5">Observación</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {cargando ? (
               <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-slate-400">Cargando…</td>
+                <td colSpan={6} className="px-3 py-8 text-center text-slate-400">Cargando…</td>
               </tr>
             ) : filas.length === 0 && !error ? (
               <tr>
-                <td colSpan={5} className="px-3 py-10 text-center text-slate-500">
+                <td colSpan={6} className="px-3 py-10 text-center text-slate-500">
                   Todavía no hay empleados cargados.{" "}
                   <button type="button" className="font-semibold text-[#3F8E91] hover:underline" onClick={irAEmpleados}>
                     Cargar empleados
@@ -346,14 +355,15 @@ function Planilla({ puedeEditar, irAEmpleados }: { puedeEditar: boolean; irAEmpl
                   fila={f}
                   puedeEditar={puedeEditar && f.empleado.activo}
                   guardando={guardando === f.empleado.id}
-                  esHoy={fecha === hoy}
                   onGuardar={(c) => guardar(f.empleado.id, c)}
+                  onVerDia={puedeEditar ? () => setDia(f.empleado.id) : undefined}
                 />
               ))
             )}
           </tbody>
         </table>
       </div>
+      {dia ? <DiaModal empleadoId={dia} fecha={fecha} onCerrar={() => setDia(null)} onCambio={() => void cargar()} /> : null}
     </section>
   );
 }
@@ -362,27 +372,46 @@ function FilaPlanilla({
   fila,
   puedeEditar,
   guardando,
-  esHoy,
   onGuardar,
+  onVerDia,
 }: {
   fila: Fila;
   puedeEditar: boolean;
   guardando: boolean;
-  esHoy: boolean;
   onGuardar: (cambios: Record<string, unknown>) => void;
+  onVerDia?: () => void;
 }) {
   const a = fila.asistencia;
-  const [entrada, setEntrada] = useState(a?.entrada ?? "");
-  const [salida, setSalida] = useState(a?.salida ?? "");
   const [obs, setObs] = useState(a?.observacion ?? "");
   useEffect(() => {
-    setEntrada(a?.entrada ?? "");
-    setSalida(a?.salida ?? "");
     setObs(a?.observacion ?? "");
-  }, [a?.entrada, a?.salida, a?.observacion]);
+  }, [a?.observacion]);
 
   const conHoras = !a || a.estado === "presente" || a.estado === "tarde";
+  // Con entrada marcada, presente/tarde lo decide la hora; sin marcaciones se
+  // puede poner ausencia, permiso, vacaciones o reposo.
+  const marcado = !!a?.entrada;
   const e = fila.empleado;
+  const pausas = [
+    a?.minutos_break ? `Break ${a.minutos_break} min` : null,
+    a?.minutos_almuerzo ? `Almuerzo ${a.minutos_almuerzo} min` : null,
+  ].filter(Boolean);
+
+  const hora = (valor: string | null | undefined, falta: string) =>
+    onVerDia ? (
+      <button
+        type="button"
+        onClick={onVerDia}
+        className={`rounded-lg border px-2.5 py-1.5 font-mono text-sm tabular-nums transition-colors hover:border-[#4FAEB2] hover:bg-[#4FAEB2]/5 ${
+          valor ? "border-slate-200 text-slate-800" : "border-dashed border-slate-200 text-slate-400"
+        }`}
+        title="Ver marcaciones y corregir"
+      >
+        {valor ?? falta}
+      </button>
+    ) : (
+      <span className={`font-mono text-sm tabular-nums ${valor ? "text-slate-800" : "text-slate-300"}`}>{valor ?? "—"}</span>
+    );
 
   return (
     <tr className={guardando ? "opacity-60" : ""}>
@@ -395,20 +424,26 @@ function FilaPlanilla({
         </span>
       </td>
       <td className="px-3 py-2.5">
-        <select
-          className={`${INPUT} border font-semibold ${estiloEstado(a?.estado ?? null)}`}
-          value={a?.estado ?? ""}
-          disabled={!puedeEditar || guardando}
-          onChange={(ev) => ev.target.value && onGuardar({ estado: ev.target.value })}
-          aria-label={`Estado de ${e.nombre}`}
-        >
-          <option value="">Sin marcar</option>
-          {ESTADOS.map((x) => (
-            <option key={x.valor} value={x.valor}>
-              {x.etiqueta}
-            </option>
-          ))}
-        </select>
+        {marcado ? (
+          <span className={`inline-block rounded-lg border px-2.5 py-1.5 text-sm font-semibold ${estiloEstado(a?.estado ?? null)}`}>
+            {ESTADOS.find((x) => x.valor === a?.estado)?.etiqueta}
+          </span>
+        ) : (
+          <select
+            className={`${INPUT} border font-semibold ${estiloEstado(a?.estado ?? null)}`}
+            value={a?.estado ?? ""}
+            disabled={!puedeEditar || guardando}
+            onChange={(ev) => ev.target.value && onGuardar({ estado: ev.target.value })}
+            aria-label={`Estado de ${e.nombre}`}
+          >
+            <option value="">Sin marcar</option>
+            {ESTADOS.filter((x) => x.valor !== "presente" && x.valor !== "tarde").map((x) => (
+              <option key={x.valor} value={x.valor}>
+                {x.etiqueta}
+              </option>
+            ))}
+          </select>
+        )}
         {a?.estado === "ausente" ? (
           <select
             className={`${INPUT} mt-1 block text-xs ${a.justificada ? "text-emerald-700" : "text-rose-700"}`}
@@ -423,51 +458,15 @@ function FilaPlanilla({
           </select>
         ) : null}
       </td>
+      <td className="px-3 py-2.5">{conHoras ? hora(a?.entrada, "+ entrada") : <span className="text-xs text-slate-300">—</span>}</td>
       <td className="px-3 py-2.5">
         {conHoras ? (
-          <div className="flex items-center gap-1.5">
-            <input
-              type="time"
-              className={INPUT}
-              value={entrada}
-              disabled={!puedeEditar || guardando}
-              onChange={(ev) => setEntrada(ev.target.value)}
-              onBlur={() => entrada !== (a?.entrada ?? "") && onGuardar({ entrada: entrada || null })}
-              aria-label={`Entrada de ${e.nombre}`}
-            />
-            {puedeEditar && esHoy && !a?.entrada ? (
-              <button type="button" className={BTN_GHOST} disabled={guardando} onClick={() => onGuardar({ entrada: ahoraPY().hora })}>
-                Ahora
-              </button>
-            ) : null}
-          </div>
+          marcado ? hora(a?.salida, "sin salida") : <span className="text-xs text-slate-300">—</span>
         ) : (
           <span className="text-xs text-slate-300">—</span>
         )}
       </td>
-      <td className="px-3 py-2.5">
-        {conHoras ? (
-          <div className="flex items-center gap-1.5">
-            <input
-              type="time"
-              className={INPUT}
-              value={salida}
-              disabled={!puedeEditar || guardando || !a?.entrada}
-              onChange={(ev) => setSalida(ev.target.value)}
-              onBlur={() => salida !== (a?.salida ?? "") && onGuardar({ salida: salida || null })}
-              aria-label={`Salida de ${e.nombre}`}
-              title={!a?.entrada ? "Primero marcá la entrada" : undefined}
-            />
-            {puedeEditar && esHoy && a?.entrada && !a?.salida ? (
-              <button type="button" className={BTN_GHOST} disabled={guardando} onClick={() => onGuardar({ salida: ahoraPY().hora })}>
-                Ahora
-              </button>
-            ) : null}
-          </div>
-        ) : (
-          <span className="text-xs text-slate-300">—</span>
-        )}
-      </td>
+      <td className="px-3 py-2.5 text-xs text-slate-500">{pausas.length ? pausas.join(" · ") : <span className="text-slate-300">—</span>}</td>
       <td className="px-3 py-2.5">
         <input
           type="text"
@@ -475,7 +474,7 @@ function FilaPlanilla({
           value={obs}
           placeholder={puedeEditar ? "Opcional" : ""}
           disabled={!puedeEditar || guardando || !a}
-          title={!a ? "Primero marcá el estado o la entrada" : undefined}
+          title={!a ? "Primero tiene que haber una marcación o un estado" : undefined}
           onChange={(ev) => setObs(ev.target.value)}
           onBlur={() => obs !== (a?.observacion ?? "") && onGuardar({ observacion: obs })}
           maxLength={300}
@@ -776,6 +775,7 @@ function Vacaciones({ puedeEditar }: { puedeEditar: boolean }) {
 const VACIO = {
   nombre: "", documento: "", cargo: "", telefono: "", horario_entrada: "", horario_salida: "",
   salario_base: "", tipo_remuneracion: "mensual", fecha_ingreso: "", aporta_ips: "si", comision_pct: "",
+  codigo: "", pin: "",
 };
 
 function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
@@ -785,6 +785,8 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
   const [form, setForm] = useState(VACIO);
   const [editId, setEditId] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
+  const [quitarPin, setQuitarPin] = useState(false);
+  const editado = empleados.find((x) => x.id === editId);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -809,10 +811,11 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
     try {
       await pedir(editId ? `/api/rrhh/empleados/${editId}` : "/api/rrhh/empleados", {
         method: editId ? "PATCH" : "POST",
-        body: JSON.stringify({ ...form, aporta_ips: form.aporta_ips === "si" }),
+        body: JSON.stringify({ ...form, aporta_ips: form.aporta_ips === "si", quitar_pin: quitarPin }),
       });
       setForm(VACIO);
       setEditId(null);
+      setQuitarPin(false);
       await cargar();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -845,7 +848,18 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
       fecha_ingreso: emp.fecha_ingreso ?? "",
       aporta_ips: emp.aporta_ips === false ? "no" : "si",
       comision_pct: emp.comision_pct != null ? String(emp.comision_pct) : "",
+      codigo: emp.codigo ?? "",
+      pin: "",
     });
+    setQuitarPin(false);
+  }
+
+  /** Código sugerido: el siguiente número libre. */
+  function sugerirCodigo() {
+    const usados = new Set(empleados.map((x) => (x.codigo ?? "").toUpperCase()));
+    let n = empleados.length + 1;
+    while (usados.has(String(n).padStart(3, "0"))) n++;
+    setForm((f) => ({ ...f, codigo: String(n).padStart(3, "0") }));
   }
 
   const campo = (k: keyof typeof VACIO, label: string, extra: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
@@ -899,12 +913,69 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
             </div>
             {campo("comision_pct", "Comisión de ventas (%)", { inputMode: "decimal", placeholder: "Solo vendedores" })}
           </div>
+
+          <div className="mt-4 rounded-xl border border-[#4FAEB2]/25 bg-[#4FAEB2]/5 p-4">
+            <p className="text-sm font-semibold text-slate-700">Para marcar asistencia</p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              El empleado marca con su cédula y este código desde cualquier sesión abierta. No necesita cuenta en el sistema.
+            </p>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500" htmlFor="emp-codigo">
+                  Código de empleado
+                </label>
+                <div className="flex gap-1.5">
+                  <input
+                    id="emp-codigo"
+                    className={`${INPUT} w-full uppercase`}
+                    value={form.codigo}
+                    placeholder="Ej: 001"
+                    autoComplete="off"
+                    onChange={(e) => setForm((f) => ({ ...f, codigo: e.target.value.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 20) }))}
+                  />
+                  {!form.codigo ? (
+                    <button type="button" className={BTN_GHOST} onClick={sugerirCodigo}>
+                      Sugerir
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500" htmlFor="emp-pin">
+                  {editado?.tiene_pin ? "Cambiar PIN" : "PIN (opcional)"}
+                </label>
+                <input
+                  id="emp-pin"
+                  type="password"
+                  inputMode="numeric"
+                  autoComplete="new-password"
+                  className={`${INPUT} w-full tracking-[0.3em]`}
+                  value={form.pin}
+                  disabled={quitarPin}
+                  placeholder={editado?.tiene_pin ? "••••  (tiene PIN)" : "4 a 6 números"}
+                  onChange={(e) => setForm((f) => ({ ...f, pin: e.target.value.replace(/\D/g, "").slice(0, 6) }))}
+                />
+              </div>
+              {editado?.tiene_pin ? (
+                <label className="flex items-end gap-2 pb-2 text-sm text-slate-600">
+                  <input type="checkbox" checked={quitarPin} onChange={(e) => { setQuitarPin(e.target.checked); setForm((f) => ({ ...f, pin: "" })); }} />
+                  Quitarle el PIN
+                </label>
+              ) : null}
+            </div>
+            <p className="mt-2 text-[11px] text-slate-400">Con PIN, además de cédula y código se lo pide al marcar. El PIN no se puede ver, solo cambiar.</p>
+          </div>
           <p className="mt-2 text-xs text-slate-400">
             Con la hora de entrada, la planilla marca &ldquo;Tarde&rdquo; sola a quien llega más de 10 minutos después.
             Con comisión cargada, el empleado aparece como vendedor en la Caja; no necesita cuenta en el sistema.
           </p>
           <div className="mt-4 flex gap-2">
-            <button type="button" className={BTN_PRIMARY} disabled={guardando || !form.nombre.trim()} onClick={() => void guardar()}>
+            <button
+              type="button"
+              className={BTN_PRIMARY}
+              disabled={guardando || !form.nombre.trim() || (form.pin !== "" && form.pin.length < 4)}
+              onClick={() => void guardar()}
+            >
               {guardando ? "Guardando…" : editId ? "Guardar cambios" : "Agregar empleado"}
             </button>
             {editId ? (
@@ -914,6 +985,7 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
                 onClick={() => {
                   setEditId(null);
                   setForm(VACIO);
+                  setQuitarPin(false);
                 }}
               >
                 Cancelar
@@ -934,6 +1006,7 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
               <tr>
                 <th className="px-3 py-2.5">Nombre</th>
                 <th className="px-3 py-2.5">Cédula</th>
+                {puedeEditar ? <th className="px-3 py-2.5">Código</th> : null}
                 <th className="px-3 py-2.5">Cargo</th>
                 <th className="px-3 py-2.5">Horario</th>
                 <th className="px-3 py-2.5">Estado</th>
@@ -943,17 +1016,29 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
             <tbody className="divide-y divide-slate-100">
               {cargando ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-8 text-center text-slate-400">Cargando…</td>
+                  <td colSpan={7} className="px-3 py-8 text-center text-slate-400">Cargando…</td>
                 </tr>
               ) : empleados.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-8 text-center text-slate-500">Todavía no hay empleados.</td>
+                  <td colSpan={7} className="px-3 py-8 text-center text-slate-500">Todavía no hay empleados.</td>
                 </tr>
               ) : (
                 empleados.map((emp) => (
                   <tr key={emp.id} className={emp.activo ? "" : "text-slate-400"}>
                     <td className="px-3 py-2.5 font-medium">{emp.nombre}</td>
                     <td className="px-3 py-2.5">{emp.documento ?? "—"}</td>
+                    {puedeEditar ? (
+                      <td className="px-3 py-2.5">
+                        {emp.codigo ? (
+                          <span className="font-mono text-xs font-semibold text-slate-700">
+                            {emp.codigo}
+                            {emp.tiene_pin ? <span className="ml-1 text-slate-400" title="Tiene PIN">🔒</span> : null}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-amber-700" title="Sin código no puede marcar asistencia">Sin código</span>
+                        )}
+                      </td>
+                    ) : null}
                     <td className="px-3 py-2.5">{emp.cargo ?? "—"}</td>
                     <td className="px-3 py-2.5 tabular-nums">
                       {emp.horario_entrada || emp.horario_salida

@@ -7,6 +7,7 @@ import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session"
 import { signOut } from "@/lib/auth";
 import NotificacionesBell from "@/components/layout/NotificacionesBell";
 import ChatPestanaBadge from "@/components/layout/ChatPestanaBadge";
+import MarcarAsistencia from "@/components/rrhh/MarcarAsistencia";
 
 type HeaderUsuario = {
   nombre: string | null;
@@ -114,6 +115,9 @@ export default function Header({ onOpenMobileSidebar }: HeaderProps = {}) {
 
       <div className="flex items-center gap-2">
         {/* Asistente de ayuda (Neurita) — desactivado temporalmente. */}
+
+        {/* Cualquier empleado marca su asistencia desde la sesión abierta. */}
+        <MarcarAsistencia />
 
         {/* Notificaciones */}
         <NotificacionesBell />

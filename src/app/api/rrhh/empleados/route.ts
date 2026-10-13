@@ -9,7 +9,9 @@ export async function GET(request: NextRequest) {
   if ("error" in c) return c.error;
   try {
     const todos = request.nextUrl.searchParams.get("todos") === "1";
-    const empleados = await listarEmpleados(c.schema, c.empresaId, todos);
+    const lista = await listarEmpleados(c.schema, c.empresaId, todos);
+    // El código sirve para marcar asistencia: solo lo ve un administrador.
+    const empleados = c.esAdmin ? lista : lista.map((e) => ({ ...e, codigo: null }));
     return NextResponse.json(successResponse({ empleados }));
   } catch (err) {
     return respuestaDeError(err, "GET empleados");
