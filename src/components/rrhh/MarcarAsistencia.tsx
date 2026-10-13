@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Clock } from "lucide-react";
 import { apiFetch } from "@/lib/api/fetch-with-supabase-session";
 
@@ -69,7 +70,9 @@ export default function MarcarAsistencia() {
         <Clock className="h-4 w-4" aria-hidden="true" />
         <span className="hidden sm:inline">Marcar asistencia</span>
       </button>
-      {abierto ? <Pantalla onCerrar={() => setAbierto(false)} /> : null}
+      {/* Va directo al body: la barra de arriba tiene backdrop-blur, y eso
+          encierra cualquier "fixed" de adentro en el alto de la barra. */}
+      {abierto ? createPortal(<Pantalla onCerrar={() => setAbierto(false)} />, document.body) : null}
     </>
   );
 }
