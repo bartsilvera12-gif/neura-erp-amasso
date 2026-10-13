@@ -1,6 +1,8 @@
 import { getChatPostgresPool, quoteSchemaTable } from "@/lib/supabase/chat-pg-pool";
 import { assertAllowedChatDataSchema } from "@/lib/supabase/chat-data-schema";
 import { hashPin } from "./pin";
+import { AsistenciaError } from "./errores";
+import { leerConfig } from "./config-pg";
 
 /**
  * Empleados y asistencia (RRHH).
@@ -22,11 +24,7 @@ export const TOLERANCIA_TARDE_MIN = 10;
 export const ESTADOS_ASISTENCIA = ["presente", "tarde", "ausente", "permiso", "vacaciones", "reposo"] as const;
 export type EstadoAsistencia = (typeof ESTADOS_ASISTENCIA)[number];
 
-export class AsistenciaError extends Error {
-  constructor(message: string, readonly status = 400) {
-    super(message);
-  }
-}
+export { AsistenciaError };
 
 export type Empleado = {
   id: string;
@@ -120,10 +118,17 @@ function minutosDe(hhmm: string): number {
   return h * 60 + m;
 }
 
-/** "tarde" si entró después del horario más la tolerancia; si no, "presente". */
-export function estadoPorEntrada(entrada: string, horarioEntrada: string | null): EstadoAsistencia {
-  if (!horarioEntrada) return "presente";
-  return minutosDe(entrada) > minutosDe(horarioEntrada.slice(0, 5)) + TOLERANCIA_TARDE_MIN
+/**
+ * "tarde" si entró después del horario más la tolerancia; si no, "presente".
+ * Con horario libre (turnos rotativos, configuración de RRHH) nunca es tarde.
+ */
+export function estadoPorEntrada(
+  entrada: string,
+  horarioEntrada: string | null,
+  reglas: { modo: "fijo" | "libre"; tolerancia_min: number } = { modo: "fijo", tolerancia_min: TOLERANCIA_TARDE_MIN }
+): EstadoAsistencia {
+  if (!horarioEntrada || reglas.modo === "libre") return "presente";
+  return minutosDe(entrada) > minutosDe(horarioEntrada.slice(0, 5)) + reglas.tolerancia_min
     ? "tarde"
     : "presente";
 }
@@ -442,7 +447,7 @@ export async function guardarAsistencia(
     }
     estado = e as EstadoAsistencia;
   } else if (entrada) {
-    estado = estadoPorEntrada(entrada, emp.rows[0].horario_entrada);
+    estado = estadoPorEntrada(entrada, emp.rows[0].horario_entrada, (await leerConfig(schemaRaw, empresaId)).horario);
   }
   if (estado && !["presente", "tarde"].includes(estado)) {
     entrada = null;
@@ -507,6 +512,13 @@ export async function resumenDelMes(
   const schema = assertAllowedChatDataSchema(schemaRaw);
   const te = quoteSchemaTable(schema, "empleados");
   const ta = quoteSchemaTable(schema, "asistencias");
+  // Qué se descuenta de lo trabajado lo decide la configuración de RRHH.
+  const cfg = (await leerConfig(schemaRaw, empresaId)).descansos;
+  const descuentos = [
+    cfg.descontar_break ? "- a.minutos_break" : "",
+    cfg.descontar_almuerzo ? "- a.minutos_almuerzo" : "",
+    "- a.minutos_fuera",
+  ].join(" ");
   const { rows } = await pool().query(
     `SELECT e.id AS empleado_id, e.nombre, e.cargo,
             count(*) FILTER (WHERE a.estado = 'presente')   AS presente,
@@ -515,9 +527,10 @@ export async function resumenDelMes(
             count(*) FILTER (WHERE a.estado = 'permiso')    AS permiso,
             count(*) FILTER (WHERE a.estado = 'vacaciones') AS vacaciones,
             count(*) FILTER (WHERE a.estado = 'reposo')     AS reposo,
-            -- Trabajado = salida − entrada − breaks − almuerzo (script 14).
+            -- Trabajado = salida − entrada − pausas que se descuentan − tiempo fuera
+            -- entre una salida y un reingreso (scripts 14 y 15).
             COALESCE(round(sum(extract(epoch FROM (a.hora_salida - a.hora_entrada)) / 60
-                               - a.minutos_break - a.minutos_almuerzo)
+                               ${descuentos})
                      FILTER (WHERE a.hora_entrada IS NOT NULL AND a.hora_salida IS NOT NULL)), 0) AS minutos,
             count(*) FILTER (WHERE a.hora_entrada IS NOT NULL AND a.hora_salida IS NULL) AS sin_salida,
             count(*) FILTER (WHERE a.estado = 'ausente' AND a.justificada IS TRUE)     AS ausente_justificada,

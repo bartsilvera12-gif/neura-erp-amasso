@@ -38,7 +38,7 @@ const ESTADO: Record<EstadoJornada, { texto: string; cls: string }> = {
   trabajando: { texto: "Trabajando", cls: "bg-emerald-50 text-emerald-700" },
   en_break: { texto: "En break", cls: "bg-amber-50 text-amber-800" },
   en_almuerzo: { texto: "En almuerzo", cls: "bg-sky-50 text-sky-700" },
-  cerrada: { texto: "Jornada cerrada", cls: "bg-slate-100 text-slate-600" },
+  cerrada: { texto: "Ya marcaste la salida", cls: "bg-slate-100 text-slate-600" },
 };
 
 /** Segundos que queda a la vista la confirmación antes de limpiar todo. */
@@ -59,6 +59,22 @@ async function enviar<T>(url: string, body: unknown): Promise<T> {
 
 export default function MarcarAsistencia() {
   const [abierto, setAbierto] = useState(false);
+  // RRHH › Configuración puede sacar el botón de la barra (p. ej. si se marca
+  // solo desde una terminal). Hasta saberlo no se muestra.
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    let cancel = false;
+    apiFetch("/api/rrhh/configuracion/publica", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { data?: { dispositivos?: { boton_en_barra?: boolean } } } | null) => {
+        if (!cancel) setVisible(j?.data?.dispositivos?.boton_en_barra !== false);
+      })
+      .catch(() => !cancel && setVisible(true));
+    return () => {
+      cancel = true;
+    };
+  }, []);
+  if (!visible) return null;
   return (
     <>
       <button
@@ -77,7 +93,11 @@ export default function MarcarAsistencia() {
   );
 }
 
-function Pantalla({ onCerrar }: { onCerrar: () => void }) {
+/**
+ * La pantalla de marcar. En modo terminal (una PC dedicada a marcar) no se
+ * cierra nunca: al terminar o por inactividad vuelve a pedir los datos.
+ */
+export function Pantalla({ onCerrar, terminal = false }: { onCerrar: () => void; terminal?: boolean }) {
   const [cedula, setCedula] = useState("");
   const [codigo, setCodigo] = useState("");
   const [pin, setPin] = useState("");
@@ -104,12 +124,13 @@ function Pantalla({ onCerrar }: { onCerrar: () => void }) {
   }
   function cerrar() {
     limpiar();
-    onCerrar();
+    if (!terminal) onCerrar();
+    else setTimeout(() => cedulaRef.current?.focus(), 50);
   }
 
   useEffect(() => {
     const t = setInterval(() => setReloj(horaPY()), 1000);
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && cerrar();
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && !terminal && cerrar();
     window.addEventListener("keydown", esc);
     document.body.style.overflow = "hidden";
     cedulaRef.current?.focus();
@@ -189,7 +210,11 @@ function Pantalla({ onCerrar }: { onCerrar: () => void }) {
   const listoParaSeguir = cedula.trim().length >= 3 && codigo.trim().length >= 1 && (!pidePin || /^\d{4,6}$/.test(pin));
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/60 p-3 backdrop-blur-sm sm:p-6">
+    <div
+      className={`fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-6 ${
+        terminal ? "bg-gradient-to-br from-slate-900 to-[#163c3e]" : "bg-slate-900/60 backdrop-blur-sm"
+      }`}
+    >
       <div
         role="dialog"
         aria-modal="true"
@@ -202,9 +227,13 @@ function Pantalla({ onCerrar }: { onCerrar: () => void }) {
           <div aria-hidden="true" className="absolute -bottom-16 -left-8 h-36 w-36 rounded-full bg-white/5" />
           <div className="relative flex items-start justify-between">
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/80">Marcar asistencia</p>
-            <button type="button" onClick={cerrar} className="-mr-2 -mt-1 rounded-full p-2 text-white/80 hover:bg-white/10 hover:text-white" aria-label="Cerrar">
-              ✕
-            </button>
+            {terminal ? (
+              <span className="rounded-full bg-white/15 px-2.5 py-0.5 text-[11px] font-semibold text-white/90">Terminal</span>
+            ) : (
+              <button type="button" onClick={cerrar} className="-mr-2 -mt-1 rounded-full p-2 text-white/80 hover:bg-white/10 hover:text-white" aria-label="Cerrar">
+                ✕
+              </button>
+            )}
           </div>
           <p className="relative mt-1 font-mono text-5xl font-semibold tabular-nums tracking-tight">{reloj}</p>
           <p className="relative mt-1 text-xs capitalize text-white/80">
@@ -225,7 +254,7 @@ function Pantalla({ onCerrar }: { onCerrar: () => void }) {
               <button type="button" onClick={cerrar} className="mt-5 w-full rounded-2xl bg-slate-900 py-3 text-sm font-semibold text-white hover:bg-slate-800">
                 Listo
               </button>
-              <p className="mt-2 text-xs text-slate-400">Se cierra sola en {cuenta} s</p>
+              <p className="mt-2 text-xs text-slate-400">{terminal ? "Vuelve al inicio" : "Se cierra sola"} en {cuenta} s</p>
             </div>
           ) : ident ? (
             <div>

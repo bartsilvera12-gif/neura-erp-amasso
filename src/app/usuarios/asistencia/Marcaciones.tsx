@@ -63,7 +63,10 @@ type Detalle = {
     usuario_nombre: string | null;
     cuando: string;
   }[];
+  totales?: { trabajado_min: number | null; break_min: number; almuerzo_min: number; fuera_min: number; avisos: string[] };
 };
+
+const hm = (min: number) => `${Math.floor(min / 60)} h ${String(Math.round(min % 60)).padStart(2, "0")} min`;
 
 const INPUT =
   "rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-800 focus:border-[#4FAEB2] focus:outline-none focus:ring-2 focus:ring-[#4FAEB2]/30 disabled:bg-slate-50 disabled:text-slate-400";
@@ -402,6 +405,31 @@ export function DiaModal({
               </li>
             ))}
           </ol>
+        ) : null}
+
+        {d?.totales && d.eventos.some((e) => !e.anulado) ? (
+          <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-xl bg-[#4FAEB2]/10 px-2 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#2F7A7D]">Trabajado</p>
+              <p className="text-sm font-semibold tabular-nums text-slate-800">
+                {d.totales.trabajado_min != null ? hm(d.totales.trabajado_min) : "sin salida"}
+              </p>
+            </div>
+            <div className="rounded-xl bg-amber-50 px-2 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-800">Breaks</p>
+              <p className="text-sm font-semibold tabular-nums text-slate-800">{d.totales.break_min} min</p>
+            </div>
+            <div className="rounded-xl bg-sky-50 px-2 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-sky-700">Almuerzo</p>
+              <p className="text-sm font-semibold tabular-nums text-slate-800">{d.totales.almuerzo_min} min</p>
+            </div>
+            {d.totales.fuera_min > 0 ? (
+              <p className="col-span-3 text-xs text-slate-500">Afuera entre salida y reingreso: {d.totales.fuera_min} min (no cuenta como trabajado).</p>
+            ) : null}
+            {d.totales.avisos.map((a) => (
+              <p key={a} className="col-span-3 rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-800">⚠ {a}</p>
+            ))}
+          </div>
         ) : null}
 
         {d && !ed ? (

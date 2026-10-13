@@ -3,6 +3,7 @@ import { esRolAdminEmpresaOGlobal } from "@/lib/auth/rol-empresa";
 import { errorResponse, successResponse } from "@/lib/api/response";
 import { getChatServiceClientForEmpresa } from "@/lib/supabase/chat-service-role-empresa";
 import { requireTenantUserApiAccess } from "@/lib/contabilidad/contabilidad-auth";
+import { puedeUsarModulo } from "@/lib/auth/solo-admin-servidor";
 
 export const runtime = "nodejs";
 
@@ -58,12 +59,13 @@ export async function GET(request: Request) {
       .order("nombre", { ascending: true });
     if (error) return NextResponse.json(errorResponse(error.message), { status: 400 });
 
-    // Quien no es administrador recibe solo lo que necesita un desplegable
-    // (nombre y tipo): sin números de cuenta, titulares ni documentos. Bancos es
-    // solo para administradores (especificación de Amasso, RF-05), pero la lista
-    // sigue alimentando los desplegables de Pagos y Clientes.
-    const admin = esAdmin(auth.rol);
-    const bancos = admin
+    // Quien no tiene acceso al módulo Bancos (RRHH › Configuración; por defecto
+    // solo administradores, RF-05) recibe solo lo que necesita un desplegable:
+    // sin números de cuenta, titulares ni documentos. La lista sigue
+    // alimentando los desplegables de Pagos y Clientes.
+    const conAcceso = await puedeUsarModulo(auth.empresaId, auth.rol, "bancos");
+    const admin = esAdmin(auth.rol) && conAcceso;
+    const bancos = conAcceso
       ? data ?? []
       : (data ?? []).map((b) => ({
           id: b.id, codigo: b.codigo, nombre: b.nombre, tipo: b.tipo, activo: b.activo, sort_order: b.sort_order,
@@ -82,7 +84,7 @@ export async function POST(request: Request) {
   try {
     const auth = await requireTenantUserApiAccess(request);
     if (!auth.ok) return NextResponse.json(errorResponse(auth.message), { status: auth.status });
-    if (!esAdmin(auth.rol)) {
+    if (!esAdmin(auth.rol) || !(await puedeUsarModulo(auth.empresaId, auth.rol, "bancos"))) {
       return NextResponse.json(errorResponse("Sin permiso para editar el catálogo de bancos"), { status: 403 });
     }
 

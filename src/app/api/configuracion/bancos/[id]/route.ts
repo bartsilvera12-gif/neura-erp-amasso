@@ -3,6 +3,7 @@ import { esRolAdminEmpresaOGlobal } from "@/lib/auth/rol-empresa";
 import { errorResponse, successResponse } from "@/lib/api/response";
 import { getChatServiceClientForEmpresa } from "@/lib/supabase/chat-service-role-empresa";
 import { requireTenantUserApiAccess } from "@/lib/contabilidad/contabilidad-auth";
+import { puedeUsarModulo } from "@/lib/auth/solo-admin-servidor";
 import { TIPOS, mensajeDuplicado, camposDeCuenta } from "../route";
 
 export const runtime = "nodejs";
@@ -20,7 +21,7 @@ export async function PUT(request: Request, ctx: { params: Promise<{ id: string 
   try {
     const auth = await requireTenantUserApiAccess(request);
     if (!auth.ok) return NextResponse.json(errorResponse(auth.message), { status: auth.status });
-    if (!esAdmin(auth.rol)) {
+    if (!esAdmin(auth.rol) || !(await puedeUsarModulo(auth.empresaId, auth.rol, "bancos"))) {
       return NextResponse.json(errorResponse("Sin permiso para editar el catálogo de bancos"), { status: 403 });
     }
     const { id } = await ctx.params;
@@ -88,7 +89,7 @@ export async function DELETE(request: Request, ctx: { params: Promise<{ id: stri
   try {
     const auth = await requireTenantUserApiAccess(request);
     if (!auth.ok) return NextResponse.json(errorResponse(auth.message), { status: auth.status });
-    if (!esAdmin(auth.rol)) {
+    if (!esAdmin(auth.rol) || !(await puedeUsarModulo(auth.empresaId, auth.rol, "bancos"))) {
       return NextResponse.json(errorResponse("Sin permiso para editar el catálogo de bancos"), { status: 403 });
     }
     const { id } = await ctx.params;

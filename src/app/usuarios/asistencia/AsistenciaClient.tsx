@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api/fetch-with-supabase-session";
+import Link from "next/link";
 import { useIsAdmin } from "@/lib/auth/use-is-admin";
 import { DiaModal, Marcaciones } from "./Marcaciones";
 
@@ -181,6 +182,7 @@ export default function AsistenciaClient() {
         </p>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
       <div role="tablist" className="inline-flex flex-wrap rounded-xl border border-slate-200 bg-slate-50 p-1">
         {([
           { id: "planilla", label: "Planilla del día", admin: false },
@@ -202,6 +204,15 @@ export default function AsistenciaClient() {
             {t.label}
           </button>
         ))}
+      </div>
+      {isAdmin ? (
+        <Link
+          href="/usuarios/asistencia/configuracion"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 transition-colors hover:border-[#4FAEB2] hover:text-[#2F7A7D]"
+        >
+          <span aria-hidden="true">⚙</span> Configuración
+        </Link>
+      ) : null}
       </div>
 
       {loaded && !isAdmin ? (

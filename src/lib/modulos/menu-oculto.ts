@@ -18,16 +18,24 @@
 // Agenda y Cobranzas: ocultos a pedido de Amasso (requerimientos, oct-2026).
 // No venden a crédito por ahora, así que Cobranzas no tiene uso.
 // Recetas volvió al menú como "Formulaciones e insumos" (mismo documento).
-// Bancos: solo sirve para registrar cobros por transferencia (Cobranzas y
-// pagos de clientes), o sea las ventas a crédito; la Caja no lo usa.
-// Gestión Clientes: panel de suscripciones y facturas electrónicas heredado;
-// Amasso usa Clientes. Se oculta para no tener dos módulos de clientes.
+// Bancos y Gestión Clientes ya no están acá: quién los ve lo define
+// RRHH › Configuración (ver `MODULOS_CONFIGURABLES` y el Sidebar).
 export const ITEMS_OCULTOS_EN_MENU: ReadonlySet<string> = new Set<string>([
   "agenda",
   "cobranzas",
-  "bancos",
-  "gestion-clientes",
 ]);
+
+/**
+ * Ítems y rutas del menú cuyo acceso se configura en RRHH › Configuración
+ * (nadie / solo administradores / todos). Mientras no se sabe la
+ * configuración, se ocultan.
+ */
+export const MODULOS_CONFIGURABLES: Record<string, "bancos" | "gestion_clientes"> = {
+  bancos: "bancos",
+  "gestion-clientes": "gestion_clientes",
+  "/configuracion/bancos": "bancos",
+  "/gestion-clientes": "gestion_clientes",
+};
 
 /**
  * Prefijos de ruta que no se ofrecen en la navegación mobile.

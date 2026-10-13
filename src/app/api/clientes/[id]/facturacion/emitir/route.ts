@@ -1,5 +1,5 @@
 import { getAuthWithRol } from "@/lib/middleware/auth";
-import { esRolAdminEmpresaOGlobal } from "@/lib/auth/rol-empresa";
+import { puedeUsarModulo } from "@/lib/auth/solo-admin-servidor";
 import { NextRequest, NextResponse } from "next/server";
 import { getFacturasSupabaseFromAuth } from "@/lib/facturacion/facturas-service-client";
 import { successResponse, errorResponse } from "@/lib/api/response";
@@ -28,8 +28,9 @@ export async function POST(
     // porque ocultar el menú no impide llamarla.
     const quien = await getAuthWithRol(request);
     if (!quien) return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
-    if (!esRolAdminEmpresaOGlobal(quien.rol)) {
-      return NextResponse.json(errorResponse("Gestión Clientes está disponible solo para administradores."), { status: 403 });
+    // Quién usa Gestión Clientes lo define RRHH › Configuración (por defecto, solo administradores).
+    if (!quien.empresa_id || !(await puedeUsarModulo(quien.empresa_id, quien.rol, "gestion_clientes"))) {
+      return NextResponse.json(errorResponse("No tenés acceso a Gestión Clientes."), { status: 403 });
     }
     const ctx = await getFacturasSupabaseFromAuth(request);
     if (!ctx) {

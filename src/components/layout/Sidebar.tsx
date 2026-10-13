@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
@@ -53,7 +53,8 @@ import { supabase } from "@/lib/supabase";
 import type { ModuloEmpresa } from "@/lib/empresas/actions";
 import { getFavoritos, toggleFavorito } from "@/lib/favorites";
 import { canAccessSidebarSlug } from "@/lib/modulos/route-slug-map";
-import { estaOcultoEnMenu } from "@/lib/modulos/menu-oculto";
+import { MODULOS_CONFIGURABLES, estaOcultoEnMenu } from "@/lib/modulos/menu-oculto";
+import type { ConfigPublica } from "@/lib/rrhh/config-tipos";
 import { useBoot } from "@/components/BootContext";
 
 type MenuItem = {
@@ -62,7 +63,8 @@ type MenuItem = {
   label: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
-  children?: { label: string; href: string; exactMatch?: boolean }[];
+  /** soloAdmin: el subitem solo se muestra a administradores. */
+  children?: { label: string; href: string; exactMatch?: boolean; soloAdmin?: boolean }[];
   showWhen?: string;
 };
 
@@ -214,7 +216,10 @@ const MENU_STRUCTURE: MenuItem[] = [
     // del ERP: los usuarios del sistema están en Configuración.
     href: "/usuarios/asistencia",
     icon: UserCog,
-    children: [{ label: "Empleados y asistencia", href: "/usuarios/asistencia" }],
+    children: [
+      { label: "Empleados y asistencia", href: "/usuarios/asistencia" },
+      { label: "Configuración", href: "/usuarios/asistencia/configuracion", soloAdmin: true },
+    ],
   },
   {
     // Soporte: la visibilidad la da el módulo, pero el permiso real es de rol
@@ -556,6 +561,46 @@ export default function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarPr
   const [collapsedFamilies, setCollapsedFamilies] = useState<Record<string, boolean>>({});
   const [cargando, setCargando] = useState(true);
   const [esSuperAdmin, setEsSuperAdmin] = useState(false);
+  /** Qué módulos configurables se ven (RRHH › Configuración). Null hasta saberlo. */
+  const [cfgPublica, setCfgPublica] = useState<(ConfigPublica & { es_admin: boolean }) | null>(null);
+  useEffect(() => {
+    let cancel = false;
+    fetchWithSupabaseSession("/api/rrhh/configuracion/publica", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { data?: ConfigPublica & { es_admin: boolean } } | null) => {
+        if (!cancel && j?.data) setCfgPublica(j.data);
+      })
+      .catch(() => null);
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  /**
+   * Oculta lo que la configuración de RRHH no deja ver (Bancos, Gestión
+   * Clientes) y los subitems solo de administradores. Mientras no se sabe, se
+   * ocultan: mejor que aparezcan un instante tarde que de más.
+   */
+  const ajustarPorConfig = useCallback(
+    (items: MenuItem[]): MenuItem[] => {
+      const permitido = (clave: string) => {
+        const modulo = MODULOS_CONFIGURABLES[clave];
+        if (!modulo) return true;
+        if (!cfgPublica) return false;
+        const acceso = cfgPublica.modulos[modulo];
+        return acceso === "todos" || (acceso === "admin" && (cfgPublica.es_admin || esSuperAdmin));
+      };
+      const admin = !!cfgPublica?.es_admin || esSuperAdmin;
+      return items
+        .filter((it) => permitido(it.key))
+        .map((it) =>
+          it.children
+            ? { ...it, children: it.children.filter((ch) => permitido(ch.href) && (!ch.soloAdmin || admin)) }
+            : it
+        );
+    },
+    [cfgPublica, esSuperAdmin]
+  );
   /** Filtro visual del menú (no altera permisos ni rutas). */
   const [menuSearchQuery, setMenuSearchQuery] = useState("");
   const { setSidebarReady } = useBoot();
@@ -708,26 +753,30 @@ export default function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarPr
   const favoritosItemsFiltered = useMemo(() => {
     const slugs = new Set(modulos.map((m) => m.slug));
     const access = (slug: string) => canAccessSidebarSlug(slug, slugs, esSuperAdmin);
-    return MENU_STRUCTURE.filter(
-      (item) =>
-        !estaOcultoEnMenu(item.key) &&
-        favoritos.includes(item.key) &&
-        access(item.slug) &&
-        menuItemMatchesQuery(item, menuSearchQuery)
+    return ajustarPorConfig(
+      MENU_STRUCTURE.filter(
+        (item) =>
+          !estaOcultoEnMenu(item.key) &&
+          favoritos.includes(item.key) &&
+          access(item.slug) &&
+          menuItemMatchesQuery(item, menuSearchQuery)
+      )
     );
-  }, [favoritos, menuSearchQuery, modulos, esSuperAdmin]);
+  }, [favoritos, menuSearchQuery, modulos, esSuperAdmin, ajustarPorConfig]);
 
   const mainItemsFiltered = useMemo(() => {
     const slugs = new Set(modulos.map((m) => m.slug));
     const access = (slug: string) => canAccessSidebarSlug(slug, slugs, esSuperAdmin);
-    return MENU_STRUCTURE.filter(
-      (item) =>
-        !estaOcultoEnMenu(item.key) &&
-        !favoritos.includes(item.key) &&
-        access(item.slug) &&
-        menuItemMatchesQuery(item, menuSearchQuery)
+    return ajustarPorConfig(
+      MENU_STRUCTURE.filter(
+        (item) =>
+          !estaOcultoEnMenu(item.key) &&
+          !favoritos.includes(item.key) &&
+          access(item.slug) &&
+          menuItemMatchesQuery(item, menuSearchQuery)
+      )
     );
-  }, [favoritos, menuSearchQuery, modulos, esSuperAdmin]);
+  }, [favoritos, menuSearchQuery, modulos, esSuperAdmin, ajustarPorConfig]);
 
   /** Agrupa `mainItemsFiltered` por familia (preservando acceso/búsqueda/favoritos ya aplicados). */
   const familiesToRender = useMemo(() => {
