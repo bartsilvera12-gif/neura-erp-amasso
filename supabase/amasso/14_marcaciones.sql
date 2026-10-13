@@ -94,6 +94,10 @@ ALTER TABLE amasso.asistencia_intentos     ENABLE ROW LEVEL SECURITY;
 
 COMMIT;
 
+-- Que PostgREST vea las columnas y tablas nuevas sin esperar. Solo refresca su
+-- caché: no cambia qué schemas están expuestos.
+NOTIFY pgrst, 'reload schema';
+
 -- Verificación: tres tablas, las tres con rls = true.
 SELECT c.relname AS tabla, c.relrowsecurity AS rls
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
