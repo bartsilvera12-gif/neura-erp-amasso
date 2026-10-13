@@ -179,6 +179,30 @@ function codigoONull(v: unknown): string | null {
   return c;
 }
 
+/**
+ * Código automático: el número siguiente al mayor código numérico de la
+ * empresa, con tres dígitos (001, 002…). Va dentro del mismo INSERT/UPDATE para
+ * que lo calcule la base; si dos altas chocan, el índice único lo frena y se
+ * reintenta.
+ */
+function sqlCodigoSiguiente(t: string, empresaParam: string): string {
+  return `(SELECT lpad((COALESCE(max(NULLIF(regexp_replace(codigo, '\\D', '', 'g'), '')::int)
+             FILTER (WHERE codigo ~ '^\\d+$'), 0) + 1)::text, 3, '0')
+             FROM ${t} ec WHERE ec.empresa_id = ${empresaParam})`;
+}
+
+async function conReintentoDeCodigo<T>(fn: () => Promise<T>): Promise<T> {
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const e = err as { code?: string; constraint?: string };
+      if (i < 3 && e?.code === "23505" && String(e.constraint ?? "").includes("codigo")) continue;
+      throw err;
+    }
+  }
+}
+
 function pinONull(v: unknown): string | null {
   if (v == null || String(v).trim() === "") return null;
   const s = String(v).trim();
@@ -225,10 +249,12 @@ export async function crearEmpleado(
   if (!nombre) throw new AsistenciaError("El nombre es obligatorio.");
   const t = quoteSchemaTable(assertAllowedChatDataSchema(schemaRaw), "empleados");
   try {
-    const { rows } = await pool().query<Empleado>(
+    // Sin código escrito, se asigna el siguiente número libre.
+    const { rows } = await conReintentoDeCodigo(() => pool().query<Empleado>(
       `INSERT INTO ${t} (empresa_id, nombre, documento, cargo, telefono, horario_entrada, horario_salida,
                          salario_base, tipo_remuneracion, fecha_ingreso, aporta_ips, comision_pct, codigo, pin_hash)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6::time, $7::time, $8::numeric, $9, $10::date, $11::boolean, $12::numeric, $13, $14)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6::time, $7::time, $8::numeric, $9, $10::date, $11::boolean, $12::numeric,
+               COALESCE($13, ${sqlCodigoSiguiente(t, "$1::uuid")}), $14)
        RETURNING ${COLS_EMPLEADO}`,
       [
         empresaId,
@@ -246,7 +272,7 @@ export async function crearEmpleado(
         codigoONull(d.codigo),
         pinONull(d.pin),
       ]
-    );
+    ));
     return rows[0];
   } catch (err) {
     mensajeUnico(err);
@@ -282,19 +308,24 @@ export async function actualizarEmpleado(
   if (d.fecha_ingreso !== undefined) add("fecha_ingreso", fechaONull(d.fecha_ingreso), "::date");
   if (typeof d.aporta_ips === "boolean") add("aporta_ips", d.aporta_ips, "::boolean");
   if (d.comision_pct !== undefined) add("comision_pct", pctONull(d.comision_pct), "::numeric");
-  if (d.codigo !== undefined) add("codigo", codigoONull(d.codigo));
+  if (d.codigo !== undefined) {
+    // Borrar el código no deja al empleado sin poder marcar: toma el siguiente libre.
+    const cod = codigoONull(d.codigo);
+    params.push(cod);
+    sets.push(`codigo = COALESCE($${params.length}, ${sqlCodigoSiguiente(t, `${t}.empresa_id`)})`);
+  }
   if (d.quitar_pin === true) add("pin_hash", null);
   else if (d.pin !== undefined && String(d.pin ?? "").trim() !== "") add("pin_hash", pinONull(d.pin));
   if (sets.length === 0) throw new AsistenciaError("No hay nada para actualizar.");
   sets.push("updated_at = now()");
   params.push(id, empresaId);
   try {
-    const { rows } = await pool().query<Empleado>(
+    const { rows } = await conReintentoDeCodigo(() => pool().query<Empleado>(
       `UPDATE ${t} SET ${sets.join(", ")}
         WHERE id = $${params.length - 1}::uuid AND empresa_id = $${params.length}::uuid
         RETURNING ${COLS_EMPLEADO}`,
       params
-    );
+    ));
     if (!rows[0]) throw new AsistenciaError("Empleado no encontrado.", 404);
     return rows[0];
   } catch (err) {

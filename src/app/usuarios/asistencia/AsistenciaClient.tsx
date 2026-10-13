@@ -851,14 +851,6 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
     setQuitarPin(false);
   }
 
-  /** Código sugerido: el siguiente número libre. */
-  function sugerirCodigo() {
-    const usados = new Set(empleados.map((x) => (x.codigo ?? "").toUpperCase()));
-    let n = empleados.length + 1;
-    while (usados.has(String(n).padStart(3, "0"))) n++;
-    setForm((f) => ({ ...f, codigo: String(n).padStart(3, "0") }));
-  }
-
   const campo = (k: keyof typeof VACIO, label: string, extra: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
     <div>
       <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500" htmlFor={`emp-${k}`}>
@@ -921,21 +913,14 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
                 <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500" htmlFor="emp-codigo">
                   Código de empleado
                 </label>
-                <div className="flex gap-1.5">
-                  <input
-                    id="emp-codigo"
-                    className={`${INPUT} w-full uppercase`}
-                    value={form.codigo}
-                    placeholder="Ej: 001"
-                    autoComplete="off"
-                    onChange={(e) => setForm((f) => ({ ...f, codigo: e.target.value.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 20) }))}
-                  />
-                  {!form.codigo ? (
-                    <button type="button" className={BTN_GHOST} onClick={sugerirCodigo}>
-                      Sugerir
-                    </button>
-                  ) : null}
-                </div>
+                <input
+                  id="emp-codigo"
+                  className={`${INPUT} w-full uppercase`}
+                  value={form.codigo}
+                  placeholder="Automático (001, 002…)"
+                  autoComplete="off"
+                  onChange={(e) => setForm((f) => ({ ...f, codigo: e.target.value.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 20) }))}
+                />
               </div>
               <div>
                 <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500" htmlFor="emp-pin">
@@ -960,7 +945,10 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
                 </label>
               ) : null}
             </div>
-            <p className="mt-2 text-[11px] text-slate-400">Con PIN, además de cédula y código se lo pide al marcar. El PIN no se puede ver, solo cambiar.</p>
+            <p className="mt-2 text-[11px] text-slate-400">
+              Si dejás el código vacío se numera solo con el siguiente libre. Con PIN, además de cédula y código se lo pide
+              al marcar; el PIN no se puede ver, solo cambiar.
+            </p>
           </div>
           <p className="mt-2 text-xs text-slate-400">
             Con la hora de entrada, la planilla marca &ldquo;Tarde&rdquo; sola a quien llega más de 10 minutos después.
