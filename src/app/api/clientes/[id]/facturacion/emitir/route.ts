@@ -1,3 +1,5 @@
+import { getAuthWithRol } from "@/lib/middleware/auth";
+import { esRolAdminEmpresaOGlobal } from "@/lib/auth/rol-empresa";
 import { NextRequest, NextResponse } from "next/server";
 import { getFacturasSupabaseFromAuth } from "@/lib/facturacion/facturas-service-client";
 import { successResponse, errorResponse } from "@/lib/api/response";
@@ -21,6 +23,14 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Gestión Clientes es solo para administradores (especificación de Amasso,
+    // RF-05). Esta API la usa únicamente esa pantalla: se bloquea acá también,
+    // porque ocultar el menú no impide llamarla.
+    const quien = await getAuthWithRol(request);
+    if (!quien) return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
+    if (!esRolAdminEmpresaOGlobal(quien.rol)) {
+      return NextResponse.json(errorResponse("Gestión Clientes está disponible solo para administradores."), { status: 403 });
+    }
     const ctx = await getFacturasSupabaseFromAuth(request);
     if (!ctx) {
       return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });

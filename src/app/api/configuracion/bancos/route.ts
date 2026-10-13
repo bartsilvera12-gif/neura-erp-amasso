@@ -58,9 +58,19 @@ export async function GET(request: Request) {
       .order("nombre", { ascending: true });
     if (error) return NextResponse.json(errorResponse(error.message), { status: 400 });
 
-    return NextResponse.json(
-      successResponse({ bancos: data ?? [], meta: { can_edit: esAdmin(auth.rol) } })
-    );
+    // Quien no es administrador recibe solo lo que necesita un desplegable
+    // (nombre y tipo): sin números de cuenta, titulares ni documentos. Bancos es
+    // solo para administradores (especificación de Amasso, RF-05), pero la lista
+    // sigue alimentando los desplegables de Pagos y Clientes.
+    const admin = esAdmin(auth.rol);
+    const bancos = admin
+      ? data ?? []
+      : (data ?? []).map((b) => ({
+          id: b.id, codigo: b.codigo, nombre: b.nombre, tipo: b.tipo, activo: b.activo, sort_order: b.sort_order,
+          es_cuenta_propia: b.es_cuenta_propia,
+          numero_cuenta: null, titular_cuenta: null, documento_titular: null, alias_cuenta: null,
+        }));
+    return NextResponse.json(successResponse({ bancos, meta: { can_edit: admin } }));
   } catch (e) {
     const message = e instanceof Error ? e.message : "No se pudieron cargar los bancos";
     return NextResponse.json(errorResponse(message), { status: 500 });
