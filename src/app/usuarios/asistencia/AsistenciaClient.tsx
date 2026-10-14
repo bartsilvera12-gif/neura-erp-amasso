@@ -808,6 +808,39 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
   const [guardando, setGuardando] = useState(false);
   const [quitarPin, setQuitarPin] = useState(false);
   const editado = empleados.find((x) => x.id === editId);
+  const [verBajas, setVerBajas] = useState(false);
+  const [borrando, setBorrando] = useState<{ emp: Empleado; dias: number; marcaciones: number; ventas: number } | null>(null);
+  const [ocupadoBorrar, setOcupadoBorrar] = useState(false);
+  const bajas = empleados.filter((x) => !x.activo).length;
+  const visibles = verBajas ? empleados : empleados.filter((x) => x.activo);
+
+  /** Primero pregunta cuánto historial tiene, para avisar antes de borrar. */
+  async function pedirBorrar(emp: Empleado) {
+    setError(null);
+    try {
+      const d = await pedir<{ historial: { dias: number; marcaciones: number; ventas: number } }>(`/api/rrhh/empleados/${emp.id}`, {
+        method: "DELETE",
+      });
+      setBorrando({ emp, ...d.historial });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function confirmarBorrar() {
+    if (!borrando) return;
+    setOcupadoBorrar(true);
+    try {
+      await pedir(`/api/rrhh/empleados/${borrando.emp.id}?confirmar=1`, { method: "DELETE" });
+      setBorrando(null);
+      await cargar();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBorrando(null);
+    } finally {
+      setOcupadoBorrar(false);
+    }
+  }
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -1027,12 +1060,12 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
                 <tr>
                   <td colSpan={7} className="px-3 py-8 text-center text-slate-400">Cargando…</td>
                 </tr>
-              ) : empleados.length === 0 ? (
+              ) : visibles.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-3 py-8 text-center text-slate-500">Todavía no hay empleados.</td>
                 </tr>
               ) : (
-                empleados.map((emp) => (
+                visibles.map((emp) => (
                   <tr key={emp.id} className={emp.activo ? "" : "text-slate-400"}>
                     <td className="px-3 py-2.5 font-medium">{emp.nombre}</td>
                     <td className="px-3 py-2.5">{emp.documento ?? "—"}</td>
@@ -1072,6 +1105,15 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
                           <button type="button" className={BTN_GHOST} onClick={() => void alternarActivo(emp)}>
                             {emp.activo ? "Dar de baja" : "Reactivar"}
                           </button>
+                          {!emp.activo ? (
+                            <button
+                              type="button"
+                              className={`${BTN_GHOST} hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700`}
+                              onClick={() => void pedirBorrar(emp)}
+                            >
+                              Borrar
+                            </button>
+                          ) : null}
                         </div>
                       </td>
                     ) : null}
@@ -1081,9 +1123,50 @@ function Empleados({ puedeEditar }: { puedeEditar: boolean }) {
             </tbody>
           </table>
         </div>
-        <p className="mt-3 text-xs text-slate-400">
-          Dar de baja saca al empleado de la planilla diaria pero conserva su historial de asistencia.
-        </p>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-slate-400">
+            Dar de baja saca al empleado de la planilla y de esta lista, pero conserva su historial. Borrar (solo dados de baja) lo
+            elimina para siempre.
+          </p>
+          {bajas > 0 ? (
+            <button type="button" className={BTN_GHOST} onClick={() => setVerBajas((v) => !v)}>
+              {verBajas ? "Ocultar dados de baja" : `Ver dados de baja (${bajas})`}
+            </button>
+          ) : null}
+        </div>
+        {borrando ? (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm" onClick={() => setBorrando(null)}>
+            <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-lg font-semibold text-slate-900">¿Borrar a {borrando.emp.nombre}?</h3>
+              {borrando.dias + borrando.marcaciones + borrando.ventas === 0 ? (
+                <p className="mt-2 text-sm text-slate-600">No tiene historial de asistencia ni ventas. Se borra para siempre.</p>
+              ) : (
+                <div className="mt-2 space-y-2 text-sm text-slate-600">
+                  <p>Se borra para siempre, junto con su historial:</p>
+                  <ul className="list-disc space-y-0.5 pl-5">
+                    {borrando.dias ? <li>{borrando.dias} día(s) de asistencia</li> : null}
+                    {borrando.marcaciones ? <li>{borrando.marcaciones} marcación(es)</li> : null}
+                    {borrando.ventas ? <li>{borrando.ventas} venta(s) quedan sin vendedor (las ventas no se borran)</li> : null}
+                  </ul>
+                  <p className="text-xs text-slate-500">Si solo querés que no aparezca, alcanza con dejarlo dado de baja.</p>
+                </div>
+              )}
+              <div className="mt-4 flex justify-end gap-2">
+                <button type="button" className={BTN_GHOST} onClick={() => setBorrando(null)}>
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={ocupadoBorrar}
+                  onClick={() => void confirmarBorrar()}
+                  className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+                >
+                  {ocupadoBorrar ? "Borrando…" : "Borrar para siempre"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </section>
     </div>
   );

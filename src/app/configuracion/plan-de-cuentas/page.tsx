@@ -212,6 +212,8 @@ export default function PlanDeCuentasPage() {
       description="Administración de cuentas contables, niveles, naturaleza y configuración fiscal."
       maxWidthClassName="max-w-[1600px]"
     >
+      <CuentasDeUso cuentas={cuentas} cargando={loading} />
+
       {/* Indicadores */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <ConfigMetricCard label="Total de cuentas" value={summary.total} />
@@ -445,6 +447,61 @@ export default function PlanDeCuentasPage() {
         />
       )}
     </GlobalConfigSubpageShell>
+  );
+}
+
+/**
+ * Las 12 cuentas del documento de Amasso (script 12): las que se eligen al
+ * cargar una compra o un gasto. El plan completo tiene además las cuentas que
+ * necesita la partida doble (Caja, IVA, Proveedores…), y en el árbol plegado
+ * estas 12 quedaban escondidas.
+ */
+const CUENTAS_DE_USO: { cuenta: string; nombre: string; uso: string }[] = [
+  { cuenta: "4.1", nombre: "Ventas", uso: "Ingresos" },
+  { cuenta: "1.1.07", nombre: "Materias primas", uso: "Compras" },
+  { cuenta: "1.1.08", nombre: "Insumos y empaques", uso: "Compras" },
+  { cuenta: "1.1.06", nombre: "Mercadería de reventa", uso: "Compras" },
+  { cuenta: "5.1.04", nombre: "Sueldos y cargas sociales", uso: "Gastos" },
+  { cuenta: "5.1.05", nombre: "Alquiler", uso: "Gastos" },
+  { cuenta: "5.1.06", nombre: "Servicios", uso: "Gastos" },
+  { cuenta: "5.1.03", nombre: "Reparto", uso: "Gastos" },
+  { cuenta: "5.1.07", nombre: "Mantenimiento y limpieza", uso: "Gastos" },
+  { cuenta: "5.1.08", nombre: "Impuestos", uso: "Gastos" },
+  { cuenta: "5.1.02", nombre: "Otros gastos", uso: "Gastos" },
+  { cuenta: "1.2.01", nombre: "Equipos y mejoras", uso: "Inversiones" },
+];
+
+function CuentasDeUso({ cuentas, cargando }: { cuentas: PlanCuentaItem[]; cargando: boolean }) {
+  const porCodigo = new Map(cuentas.map((c) => [c.cuenta, c]));
+  return (
+    <section className="rounded-2xl border border-[#4FAEB2]/30 bg-[#4FAEB2]/5 p-4">
+      <h2 className="text-sm font-semibold text-slate-800">Cuentas para compras y gastos</h2>
+      <p className="text-xs text-slate-500">
+        Las 12 que se eligen al cargar una compra o un gasto. Abajo está el plan completo, con las cuentas que usa el sistema
+        para los asientos (Caja, IVA, Proveedores…).
+      </p>
+      <ol className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {CUENTAS_DE_USO.map((u, i) => {
+          const c = porCodigo.get(u.cuenta);
+          return (
+            <li key={u.cuenta} className="flex items-center gap-3 rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
+              <span className="w-5 text-right font-mono text-xs text-slate-400">{i + 1}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium text-slate-800">{u.nombre}</span>
+                <span className="font-mono text-[11px] text-slate-400">
+                  {u.cuenta} · {u.uso}
+                </span>
+              </span>
+              {cargando ? null : !c ? (
+                <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700">Falta</span>
+              ) : !c.activo ? (
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">Inactiva</span>
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }
 

@@ -568,3 +568,48 @@ export async function resumenDelMes(
     minutos_extra: Number(r.minutos_extra),
   }));
 }
+
+export type HistorialEmpleado = { dias: number; marcaciones: number; ventas: number };
+
+/**
+ * Borra un empleado para siempre. Solo uno dado de baja: dar de baja es el
+ * paso reversible, borrar es el definitivo. Se van con él sus días de
+ * asistencia, marcaciones y correcciones (la base los borra en cascada); sus
+ * ventas quedan, sin vendedor. Sin `confirmar` no borra: devuelve cuánto
+ * historial se perdería, para mostrarlo antes de preguntar.
+ */
+export async function eliminarEmpleado(
+  schemaRaw: string,
+  empresaId: string,
+  id: string,
+  confirmar: boolean
+): Promise<HistorialEmpleado> {
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  const te = quoteSchemaTable(schema, "empleados");
+  const emp = await pool().query<{ activo: boolean }>(`SELECT activo FROM ${te} WHERE id = $1::uuid AND empresa_id = $2::uuid`, [
+    id,
+    empresaId,
+  ]);
+  if (!emp.rows[0]) throw new AsistenciaError("Empleado no encontrado.", 404);
+  if (emp.rows[0].activo) throw new AsistenciaError("Primero dalo de baja. Solo se puede borrar un empleado dado de baja.", 409);
+  const contar = async (tabla: string, col = "empleado_id") => {
+    try {
+      const r = await pool().query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM ${quoteSchemaTable(schema, tabla)} WHERE empresa_id = $1::uuid AND ${col} = $2::uuid`,
+        [empresaId, id]
+      );
+      return Number(r.rows[0]?.n ?? 0);
+    } catch {
+      return 0; // tabla o columna que todavía no existe
+    }
+  };
+  const historial = {
+    dias: await contar("asistencias"),
+    marcaciones: await contar("asistencia_eventos"),
+    ventas: await contar("ventas", "vendedor_empleado_id"),
+  };
+  if (confirmar) {
+    await pool().query(`DELETE FROM ${te} WHERE id = $1::uuid AND empresa_id = $2::uuid AND NOT activo`, [id, empresaId]);
+  }
+  return historial;
+}
