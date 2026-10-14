@@ -497,7 +497,7 @@ export function secuenciaValida(evs: { tipo: TipoEvento }[], cfg: ConfigRrhh = C
       }
       return anterior
         ? `La secuencia no cierra: “${ETIQUETA_EVENTO[e.tipo]}” no puede ir después de “${ETIQUETA_EVENTO[anterior]}”.`
-        : `La jornada tiene que empezar con una entrada, no con “${ETIQUETA_EVENTO[e.tipo]}”.`;
+        : `Este día todavía no tiene Entrada. Agregá primero la Entrada (con su hora) y después “${ETIQUETA_EVENTO[e.tipo]}”.`;
     }
     if (e.tipo === "inicio_break") usados.breaks++;
     if (e.tipo === "inicio_almuerzo") usados.almuerzos++;
