@@ -76,6 +76,8 @@ type Liquidacion = {
   monto_base: number;
   descuento_ausencias: number;
   monto_extras: number;
+  ventas_mes: number;
+  comision_pct: number | null;
   monto_comision: number;
   bruto: number;
   ips_obrero: number;
@@ -640,7 +642,18 @@ function ResumenMes({ esAdmin }: { esAdmin: boolean }) {
                       {f.descuento_ausencias ? `−${gs(f.descuento_ausencias)}` : "—"}
                     </td>
                     <td className={`px-3 py-2.5 text-right tabular-nums ${f.monto_extras ? "" : "text-slate-300"}`}>{f.monto_extras ? gs(f.monto_extras) : "—"}</td>
-                    <td className={`px-3 py-2.5 text-right tabular-nums ${f.monto_comision ? "" : "text-slate-300"}`}>{f.monto_comision ? gs(f.monto_comision) : "—"}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">
+                      {f.comision_pct ? (
+                        <>
+                          <span className={f.monto_comision ? "" : "text-slate-400"}>{gs(f.monto_comision)}</span>
+                          <span className="block whitespace-nowrap text-[11px] text-slate-400">
+                            {f.comision_pct.toLocaleString("es-PY")}% de {gs(f.ventas_mes)}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2.5 text-right tabular-nums font-semibold">{gs(f.bruto)}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">−{gs(f.ips_obrero)}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-slate-900">{gs(f.neto)}</td>
