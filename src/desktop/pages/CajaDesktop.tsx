@@ -96,7 +96,7 @@ export default function CajaDesktop() {
       </div>
 
       {listo ? (
-        <ModalComprobante>
+        <ModalComprobante onCerrar={caja.reiniciar}>
           <Comprobante caja={caja} />
         </ModalComprobante>
       ) : null}
