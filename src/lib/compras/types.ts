@@ -53,5 +53,11 @@ export interface Compra {
   /** Etiqueta display "{cuenta} — {denominacion}" (solo lectura, derivada del join). */
   cuenta_contable_label: string | null;
 
+  /** Fecha de la factura del proveedor (AAAA-MM-DD). */
+  fecha_factura?: string | null;
+  observacion?: string | null;
+  /** `directa` (cargada en Compras) o `recepcion` (facturada contra una recepción). */
+  origen_compra?: string | null;
+
   fecha: string;                 // ISO string, generado automáticamente
 }

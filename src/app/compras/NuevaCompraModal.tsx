@@ -10,7 +10,7 @@ import CuentaCombobox from "@/components/contabilidad/CuentaCombobox";
 import SmartCombobox, { type ComboOption } from "@/components/ui/SmartCombobox";
 import { getProveedores, proveedorExiste, createProveedor } from "@/lib/proveedores/storage";
 import { getProductos, productoExiste, saveProducto } from "@/lib/inventario/storage";
-import type { TipoIva, TipoPago, Moneda } from "@/lib/compras/types";
+import type { Compra, TipoIva, TipoPago, Moneda } from "@/lib/compras/types";
 import type { Proveedor } from "@/lib/proveedores/types";
 import type { Producto } from "@/lib/inventario/types";
 
@@ -65,8 +65,23 @@ function Titulo({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Modal compacto de alta de compra directa (misma lógica que /compras/nueva, estilo ERP). */
-export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+/**
+ * Modal compacto de alta de compra directa (misma lógica que /compras/nueva, estilo ERP).
+ *
+ * Con `base` es una corrección: se abre con los datos de esa compra y, al
+ * guardar, primero se anula la original (vuelve el stock y se revierte el
+ * asiento) y después se registra la nueva. Así el stock y la contabilidad
+ * quedan cuadrados sin editar movimientos ya hechos.
+ */
+export default function NuevaCompraModal({
+  onClose,
+  onSaved,
+  base = null,
+}: {
+  onClose: () => void;
+  onSaved: () => void;
+  base?: Compra | null;
+}) {
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [cuentas, setCuentas] = useState<CuentaContableOpcion[]>([]);
@@ -93,6 +108,9 @@ export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => 
 
   const [errorSubmit, setErrorSubmit] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  /** En una corrección: la compra original ya se anuló (no se vuelve a anular si falla el guardado). */
+  const [originalAnulada, setOriginalAnulada] = useState(false);
+  const precargada = useRef(false);
 
   // Inline: proveedor
   const [nvProv, setNvProv] = useState(false);
@@ -138,6 +156,37 @@ export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => 
       } catch {}
     })();
   }, []);
+
+  // Corrección: precarga los datos de la compra original cuando ya están los productos.
+  useEffect(() => {
+    if (!base || precargada.current || productos.length === 0) return;
+    precargada.current = true;
+    const p = productos.find((x) => x.id === base.producto_id);
+    const clase = p && (CLASES_COMPRABLES as readonly string[]).includes(claseDe(p)) ? claseDe(p) : "reventa";
+    setForm((prev) => ({
+      ...prev,
+      proveedor_id: String(base.proveedor_id ?? ""),
+      producto_id: base.producto_id,
+      nro_timbrado: base.nro_timbrado ?? "",
+      tipo_comprobante: base.tipo_comprobante || "Factura",
+      numero_comprobante: base.numero_comprobante ?? "",
+      cantidad: String(base.cantidad).replace(".", ","),
+      moneda: base.moneda,
+      tipo_cambio: base.moneda === "USD" ? String(base.tipo_cambio) : "",
+      costo_unitario_input: String(base.costo_unitario_original),
+      iva_tipo: base.iva_tipo,
+      precio_venta: base.precio_venta ? String(base.precio_venta) : "",
+      tipo_pago: base.tipo_pago,
+      plazo_dias: base.plazo_dias ? String(base.plazo_dias) : "",
+      cuotas: base.cuotas ? String(base.cuotas) : "1",
+      cuenta_contable_id: base.cuenta_contable_id ?? "",
+      cuenta_contrapartida_id:
+        base.tipo_pago === "contado" ? base.cuenta_contrapartida_id || prev.cuenta_contrapartida_id : prev.cuenta_contrapartida_id,
+      cuenta_proveedores_id:
+        base.tipo_pago === "credito" ? base.cuenta_contrapartida_id || prev.cuenta_proveedores_id : prev.cuenta_proveedores_id,
+      clase,
+    }));
+  }, [base, productos]);
 
   // Cálculos
   // Acepta coma decimal: 0,05 kg es una compra normal de levadura.
@@ -200,6 +249,21 @@ export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => 
 
     setSubmitting(true);
     try {
+      // Corrección: primero se anula la original, que devuelve su stock y revierte su asiento.
+      if (base && !originalAnulada) {
+        const r = await fetch(`/api/compras/${base.id}/anular`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ motivo: `Corregida: se reemplaza por una compra nueva con los datos corregidos.` }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || j?.success === false) {
+          setErrorSubmit(j?.error ?? "No se pudo anular la compra original. No se guardó nada.");
+          return;
+        }
+        setOriginalAnulada(true);
+      }
       const res = await saveCompra({
         proveedor_id: String(proveedor.id), proveedor_nombre: proveedor.nombre,
         producto_id: producto.id, producto_nombre: producto.nombre,
@@ -219,7 +283,14 @@ export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => 
           : (form.cuenta_proveedores_id || null),
         cuenta_contable_label: null,
       }, idempotencyKey);
-      if (!res.success) { setErrorSubmit(res.error); return; }
+      if (!res.success) {
+        setErrorSubmit(
+          base
+            ? `La compra original ya se anuló, pero la corrección no se guardó: ${res.error} Revisá los datos y guardá de nuevo.`
+            : res.error
+        );
+        return;
+      }
 
       // Subir la foto/PDF de la factura (best-effort: la compra ya quedó guardada).
       if (archivo) {
@@ -291,7 +362,9 @@ export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => 
               <span aria-hidden className="inline-block h-2 w-2 rounded-full bg-[#4FAEB2] shadow-[0_0_0_3px_rgba(79,174,178,0.18)]" />
               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#4FAEB2]">Operaciones · Compras</p>
             </div>
-            <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Nueva compra</h2>
+            <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">
+              {base ? `Corregir compra ${base.numero_control}` : "Nueva compra"}
+            </h2>
           </div>
           <button type="button" onClick={onClose}
             className="rounded-lg px-2 py-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700">✕</button>
@@ -299,6 +372,17 @@ export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => 
 
         {/* Cuerpo */}
         <div className="flex-1 space-y-5 overflow-y-auto p-5">
+
+          {base ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <p className="font-semibold">Estás corrigiendo {base.numero_control}</p>
+              <p className="mt-0.5 text-xs text-amber-800">
+                Al guardar, la compra original se anula (vuelve su stock y se revierte su asiento) y se registra esta con los
+                datos corregidos. Revisá el depósito donde entra la mercadería.
+                {originalAnulada ? " La original ya está anulada: falta guardar esta." : ""}
+              </p>
+            </div>
+          ) : null}
 
           {/* Comprobante + Proveedor + Cuenta contable */}
           <section className="space-y-3">
@@ -581,7 +665,7 @@ export default function NuevaCompraModal({ onClose, onSaved }: { onClose: () => 
           </button>
           <button type="submit" disabled={!calculosListos || submitting}
             className="rounded-xl bg-[#4FAEB2] px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#4FAEB2]/25 transition-colors hover:bg-[#3F8E91] disabled:cursor-not-allowed disabled:opacity-40">
-            {submitting ? "Guardando…" : "Guardar compra"}
+            {submitting ? "Guardando…" : base ? "Guardar corrección" : "Guardar compra"}
           </button>
         </div>
       </form>

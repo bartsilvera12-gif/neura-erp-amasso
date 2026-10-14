@@ -62,6 +62,8 @@ export default function ComprasPage() {
   const [cuentas, setCuentas] = useState<CuentaContableOpcion[]>([]);
   const [detalle, setDetalle] = useState<Compra | null>(null);
   const [modalNueva, setModalNueva] = useState(false);
+  /** Compra que se está corrigiendo (anular + cargar de nuevo con los datos corregidos). */
+  const [corrigiendo, setCorrigiendo] = useState<Compra | null>(null);
   /** Null mientras carga; string si el servidor no pudo devolver la lista. */
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -325,6 +327,18 @@ export default function ComprasPage() {
             setDetalle(null);
             recargar();
           }}
+          onCorregir={(c) => {
+            setDetalle(null);
+            setCorrigiendo(c);
+          }}
+        />
+      )}
+
+      {corrigiendo && (
+        <NuevaCompraModal
+          base={corrigiendo}
+          onClose={() => { setCorrigiendo(null); recargar(); }}
+          onSaved={() => { setCorrigiendo(null); recargar(); }}
         />
       )}
 
@@ -344,11 +358,13 @@ function CompraDetalleModal({
   cuentas,
   onClose,
   onSaved,
+  onCorregir,
 }: {
   compra: Compra;
   cuentas: CuentaContableOpcion[];
   onClose: () => void;
   onSaved: () => void;
+  onCorregir: (c: Compra) => void;
 }) {
   const [cuentaId, setCuentaId] = useState<string>(compra.cuenta_contable_id ?? "");
   const [search, setSearch] = useState("");
@@ -359,6 +375,83 @@ function CompraDetalleModal({
   const { isAdmin } = useIsAdmin();
   const [anulando, setAnulando] = useState(false);
   const yaAnulada = (compra.estado ?? "") === "anulada";
+  // Solo se corrige anulando y recargando una compra directa: la que vino de una
+  // recepción no movió stock (entró con la recepción) y recargarla lo duplicaría.
+  const corregible = !yaAnulada && (compra.origen_compra ?? "directa") !== "recepcion";
+  const [factura, setFactura] = useState({
+    tipo_comprobante: compra.tipo_comprobante ?? "Factura",
+    numero_comprobante: compra.numero_comprobante ?? "",
+    nro_timbrado: compra.nro_timbrado ?? "",
+    fecha_factura: compra.fecha_factura ?? "",
+    observacion: compra.observacion ?? "",
+  });
+  const [editandoFactura, setEditandoFactura] = useState(false);
+  const [eliminando, setEliminando] = useState(false);
+
+  async function guardarFactura() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/compras/${compra.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(factura),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body?.success === false) {
+        setError(body?.error ?? "No se pudieron guardar los datos de la factura.");
+        return;
+      }
+      onSaved();
+    } catch {
+      setError("Error de red al guardar.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /**
+   * Eliminar: una compra vigente primero se anula (devuelve el stock y revierte
+   * el asiento) y después se borra de la lista. Una anulada se borra directo.
+   */
+  async function eliminar() {
+    if (eliminando) return;
+    const ok = confirm(
+      yaAnulada
+        ? `¿Eliminar ${compra.numero_control}? Ya está anulada: se borra de la lista. No se puede deshacer.`
+        : `¿Eliminar ${compra.numero_control}?\n\nPrimero se anula (vuelve el stock que movió y se revierte su asiento) y después se borra de la lista. No se puede deshacer.`
+    );
+    if (!ok) return;
+    setEliminando(true);
+    setError(null);
+    try {
+      if (!yaAnulada) {
+        const r = await fetch(`/api/compras/${compra.id}/anular`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ motivo: "Eliminada desde Compras." }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || j?.success === false) {
+          setError(j?.error ?? "No se pudo anular la compra, no se eliminó.");
+          return;
+        }
+      }
+      const r = await fetch(`/api/compras/${compra.id}`, { method: "DELETE", credentials: "include" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j?.success === false) {
+        setError(j?.error ?? "La compra quedó anulada pero no se pudo eliminar de la lista.");
+        return;
+      }
+      onSaved();
+    } catch {
+      setError("Error de red al eliminar.");
+    } finally {
+      setEliminando(false);
+    }
+  }
 
   /**
    * Anular revierte el stock que ESTA compra movió y contrapasa su asiento. Una
@@ -466,17 +559,76 @@ function CompraDetalleModal({
               <dt className="text-xs uppercase tracking-wide text-slate-400">Total</dt>
               <dd className="font-semibold text-slate-800">Gs. {compra.total.toLocaleString("es-PY")}</dd>
             </div>
-            {(compra.numero_comprobante || compra.tipo_comprobante) && (
-              <div>
-                <dt className="text-xs uppercase tracking-wide text-slate-400">Comprobante</dt>
-                <dd className="text-slate-700">{[compra.tipo_comprobante, compra.numero_comprobante].filter(Boolean).join(" ")}</dd>
-              </div>
-            )}
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-slate-400">Timbrado</dt>
-              <dd className="text-slate-700">{compra.nro_timbrado || "—"}</dd>
-            </div>
           </dl>
+
+          {/* Datos de la factura: se corrigen sin tocar stock ni plata. */}
+          <div className="rounded-lg border border-slate-200 px-3 py-3">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Datos de la factura</p>
+              {!yaAnulada && !editandoFactura ? (
+                <button type="button" onClick={() => setEditandoFactura(true)} className="text-xs font-semibold text-[#3F8E91] hover:underline">
+                  Editar
+                </button>
+              ) : null}
+            </div>
+            {editandoFactura ? (
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <label className="text-xs text-slate-500">
+                  Tipo
+                  <input className="mt-0.5 w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm" value={factura.tipo_comprobante}
+                    onChange={(e) => setFactura((f) => ({ ...f, tipo_comprobante: e.target.value }))} />
+                </label>
+                <label className="text-xs text-slate-500">
+                  N° de comprobante
+                  <input className="mt-0.5 w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm" value={factura.numero_comprobante}
+                    placeholder="001-001-0000001" onChange={(e) => setFactura((f) => ({ ...f, numero_comprobante: e.target.value }))} />
+                </label>
+                <label className="text-xs text-slate-500">
+                  Timbrado
+                  <input className="mt-0.5 w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm" value={factura.nro_timbrado} inputMode="numeric"
+                    onChange={(e) => setFactura((f) => ({ ...f, nro_timbrado: e.target.value.replace(/\D/g, "").slice(0, 8) }))} />
+                </label>
+                <label className="text-xs text-slate-500">
+                  Fecha de la factura
+                  <input type="date" className="mt-0.5 w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm" value={factura.fecha_factura}
+                    onChange={(e) => setFactura((f) => ({ ...f, fecha_factura: e.target.value }))} />
+                </label>
+                <label className="col-span-2 text-xs text-slate-500">
+                  Observación
+                  <input className="mt-0.5 w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm" value={factura.observacion}
+                    onChange={(e) => setFactura((f) => ({ ...f, observacion: e.target.value }))} />
+                </label>
+                <div className="col-span-2 flex justify-end gap-2 pt-1">
+                  <button type="button" onClick={() => setEditandoFactura(false)} className="rounded-lg border px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50">
+                    Cancelar
+                  </button>
+                  <button type="button" disabled={saving || !factura.nro_timbrado.trim()} onClick={() => void guardarFactura()}
+                    className="rounded-lg bg-[#4FAEB2] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#3F8E91] disabled:opacity-50">
+                    {saving ? "Guardando…" : "Guardar datos"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <dl className="grid grid-cols-2 gap-2 text-sm">
+                <div><dt className="text-xs text-slate-400">Comprobante</dt><dd className="text-slate-700">{[compra.tipo_comprobante, compra.numero_comprobante].filter(Boolean).join(" ") || "—"}</dd></div>
+                <div><dt className="text-xs text-slate-400">Timbrado</dt><dd className="text-slate-700">{compra.nro_timbrado || "—"}</dd></div>
+                <div><dt className="text-xs text-slate-400">Fecha de la factura</dt><dd className="text-slate-700">{compra.fecha_factura ? compra.fecha_factura.split("-").reverse().join("/") : "—"}</dd></div>
+                <div><dt className="text-xs text-slate-400">Observación</dt><dd className="text-slate-700">{compra.observacion || "—"}</dd></div>
+              </dl>
+            )}
+          </div>
+
+          {isAdmin && corregible ? (
+            <div className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+              <p className="text-xs text-slate-500">
+                ¿Cantidad, costo, producto o proveedor mal cargados? Se anula esta compra y se carga de nuevo con los datos corregidos.
+              </p>
+              <button type="button" onClick={() => onCorregir(compra)}
+                className="shrink-0 rounded-lg border border-[#4FAEB2] px-3 py-1.5 text-xs font-semibold text-[#2F7A7D] hover:bg-[#4FAEB2]/10">
+                Corregir compra
+              </button>
+            </div>
+          ) : null}
 
           {compra.documento_path && (
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
@@ -531,6 +683,15 @@ function CompraDetalleModal({
           ) : null}
           {yaAnulada ? (
             <span className="mr-auto text-xs font-semibold text-rose-600">Compra anulada</span>
+          ) : null}
+          {isAdmin ? (
+            <button
+              onClick={() => void eliminar()}
+              disabled={eliminando || anulando}
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+            >
+              {eliminando ? "Eliminando…" : "Eliminar"}
+            </button>
           ) : null}
           <button onClick={onClose} className="rounded-lg border px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
             Cerrar

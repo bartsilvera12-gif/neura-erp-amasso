@@ -15,6 +15,10 @@ interface CompraApiRow {
   cuenta_contable_id?: string | null;
   cuenta_contable_codigo?: string | null;
   cuenta_contable_denominacion?: string | null;
+  fecha_factura?: string | null;
+  observacion?: string | null;
+  origen_compra?: string | null;
+  cuenta_contrapartida_id?: string | null;
   fecha: string;
 }
 
@@ -51,6 +55,10 @@ function mapRow(r: CompraApiRow): Compra {
     numero_comprobante: r.numero_comprobante ?? null,
     tipo_comprobante: r.tipo_comprobante ?? null,
     documento_path: r.documento_path ?? null,
+    fecha_factura: r.fecha_factura ? String(r.fecha_factura).slice(0, 10) : null,
+    observacion: r.observacion ?? null,
+    origen_compra: r.origen_compra ?? null,
+    cuenta_contrapartida_id: r.cuenta_contrapartida_id ?? null,
     fecha: r.fecha,
   };
 }

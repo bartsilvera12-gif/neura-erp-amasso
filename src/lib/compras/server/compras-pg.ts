@@ -54,6 +54,10 @@ export interface CompraRow {
   tipo_comprobante: string | null;
   documento_path: string | null;
   documento_mime: string | null;
+  fecha_factura?: string | null;
+  observacion?: string | null;
+  origen_compra?: string | null;
+  cuenta_contrapartida_id?: string | null;
   cuenta_contable_codigo?: string | null;
   cuenta_contable_denominacion?: string | null;
 }
@@ -64,7 +68,8 @@ const COLS = `
   iva_tipo, subtotal, monto_iva, total, precio_venta, margen_venta,
   tipo_pago, plazo_dias, cuotas, nro_timbrado, numero_control, estado, fecha,
   created_at, updated_at, created_by, usuario_nombre, cuenta_contable_id,
-  numero_comprobante, tipo_comprobante, documento_path, documento_mime
+  numero_comprobante, tipo_comprobante, documento_path, documento_mime,
+  fecha_factura::text AS fecha_factura, observacion, origen_compra, cuenta_contrapartida_id
 `;
 
 export interface InsertCompraInput {
@@ -170,6 +175,94 @@ export async function updateCompraCuentaContable(
     [cuentaContableId, compraId, empresaId]
   );
   return rows[0] ?? null;
+}
+
+/**
+ * Datos de la factura que se pueden corregir sin tocar stock ni plata:
+ * comprobante, timbrado, fecha de factura y observación. Cantidades, costos y
+ * producto no: eso se corrige anulando y cargando la compra de nuevo.
+ */
+export async function updateCompraDatosFactura(
+  schemaRaw: string,
+  empresaId: string,
+  compraId: string,
+  d: {
+    tipo_comprobante?: unknown;
+    numero_comprobante?: unknown;
+    nro_timbrado?: unknown;
+    fecha_factura?: unknown;
+    observacion?: unknown;
+  }
+): Promise<boolean> {
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  const tC = quoteSchemaTable(schema, "compras");
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  const txt = (v: unknown, max: number) => {
+    const s = String(v ?? "").trim();
+    return s ? s.slice(0, max) : null;
+  };
+  const add = (col: string, val: unknown, cast = "") => {
+    params.push(val);
+    sets.push(`${col} = $${params.length}${cast}`);
+  };
+  if (d.tipo_comprobante !== undefined) add("tipo_comprobante", txt(d.tipo_comprobante, 40));
+  if (d.numero_comprobante !== undefined) {
+    const n = txt(d.numero_comprobante, 40);
+    add("numero_comprobante", n);
+    add("numero_factura", n);
+  }
+  if (d.nro_timbrado !== undefined) {
+    const t = txt(d.nro_timbrado, 20);
+    if (!t) throw new Error("El timbrado no puede quedar vacío.");
+    add("nro_timbrado", t);
+  }
+  if (d.fecha_factura !== undefined) {
+    const f = txt(d.fecha_factura, 10);
+    if (f && !/^\d{4}-\d{2}-\d{2}$/.test(f)) throw new Error("Fecha de factura inválida.");
+    add("fecha_factura", f, "::date");
+  }
+  if (d.observacion !== undefined) add("observacion", txt(d.observacion, 500));
+  if (sets.length === 0) return false;
+  params.push(compraId, empresaId);
+  const r = await pool().query(
+    `UPDATE ${tC} SET ${sets.join(", ")}, updated_at = now()
+      WHERE id = $${params.length - 1}::uuid AND empresa_id = $${params.length}::uuid`,
+    params
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+
+/**
+ * Borra una compra de la lista. Solo una anulada: la anulación ya devolvió el
+ * stock, revirtió el asiento y anuló el movimiento de caja, así que borrarla
+ * no descuadra nada. Los asientos y los movimientos de stock quedan como
+ * historial (apuntan al número de la compra, no la necesitan).
+ */
+export async function eliminarCompraAnulada(schemaRaw: string, empresaId: string, compraId: string): Promise<void> {
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  const tC = quoteSchemaTable(schema, "compras");
+  const tI = quoteSchemaTable(schema, "compra_items");
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    const r = await client.query<{ estado: string }>(
+      `SELECT estado FROM ${tC} WHERE id = $1::uuid AND empresa_id = $2::uuid FOR UPDATE`,
+      [compraId, empresaId]
+    );
+    if (!r.rows[0]) throw Object.assign(new Error("Compra no encontrada."), { status: 404 });
+    if (r.rows[0].estado !== "anulada") {
+      throw Object.assign(new Error("Solo se puede eliminar una compra anulada. Anulala primero."), { status: 409 });
+    }
+    await client.query(`DELETE FROM ${tI} WHERE compra_id = $1::uuid AND empresa_id = $2::uuid`, [compraId, empresaId]);
+    await client.query(`DELETE FROM ${tC} WHERE id = $1::uuid AND empresa_id = $2::uuid`, [compraId, empresaId]);
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => null);
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /** Genera proximo COMP-XXXXXX leyendo el maximo existente. */
