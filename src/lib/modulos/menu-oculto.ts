@@ -20,9 +20,13 @@
 // Recetas volvió al menú como "Formulaciones e insumos" (mismo documento).
 // Bancos y Gestión Clientes ya no están acá: quién los ve lo define
 // RRHH › Configuración (ver `MODULOS_CONFIGURABLES` y el Sidebar).
+// Comisiones: módulo heredado (usuarios del sistema, facturas, políticas). En
+// Amasso los vendedores son empleados sin cuenta y su comisión se calcula en
+// RRHH › Resumen y liquidación, como pide el documento (sección 6).
 export const ITEMS_OCULTOS_EN_MENU: ReadonlySet<string> = new Set<string>([
   "agenda",
   "cobranzas",
+  "comisiones",
 ]);
 
 /**
