@@ -1,4 +1,4 @@
-import { esClaseProducto, type ClaseProducto } from "@/lib/inventario/clases";
+import { claseVendible, esClaseProducto, type ClaseProducto } from "@/lib/inventario/clases";
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
@@ -536,10 +536,31 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Stock inicial por ubicacion (no reemplaza productos.stock_actual).
-      if (ubicacionPrincipalId && stockActual > 0) {
+      // Stock inicial por ubicacion (no reemplaza productos.stock_actual). Sin
+      // ubicación elegida iba solo al total y no quedaba en ningún depósito:
+      // Caja, mermas y transferencias (que miran el depósito) veían 0. Ahora va
+      // al Punto de venta si se vende, o al depósito / fábrica si no.
+      let ubicacionStockInicial = ubicacionPrincipalId;
+      if (!ubicacionStockInicial && stockActual > 0) {
         try {
-          await setStockUbicacionInicial(schema, empresaId, row.id, ubicacionPrincipalId, stockActual);
+          const pool = getChatPostgresPool();
+          if (pool) {
+            const quiere = claseVendible(claseProducto) ? "salon" : "deposito";
+            const r = await pool.query<{ id: string }>(
+              `SELECT id FROM ${quoteSchemaTable(schema, "inventario_ubicaciones")}
+                WHERE empresa_id = $1::uuid AND tipo <> 'camion' AND COALESCE(activo, true)
+                ORDER BY (tipo = $2) DESC, created_at LIMIT 1`,
+              [empresaId, quiere]
+            );
+            ubicacionStockInicial = r.rows[0]?.id ?? null;
+          }
+        } catch (err) {
+          console.error("[/api/productos] ubicación por defecto", err instanceof Error ? err.message : err);
+        }
+      }
+      if (ubicacionStockInicial && stockActual > 0) {
+        try {
+          await setStockUbicacionInicial(schema, empresaId, row.id, ubicacionStockInicial, stockActual);
         } catch (err) {
           console.error("[/api/productos] setStockUbicacionInicial fallo", {
             schema, empresaId, productoId: row.id,

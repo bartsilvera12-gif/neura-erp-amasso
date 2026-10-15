@@ -306,7 +306,8 @@ export default function NuevoProductoPage() {
           sku: sku.toUpperCase(),
           costo_promedio: parseFloat(form.costo_promedio) || 0,
           precio_venta: esMateriaPrima ? 0 : parseFloat(form.precio_venta) || 0,
-          stock_actual: parseInt(form.stock_actual) || 0,
+          // Decimales: 0,5 kg de levadura es stock normal (antes parseInt lo dejaba en 0).
+          stock_actual: parseFloat(String(form.stock_actual).replace(",", ".")) || 0,
           stock_minimo: parseInt(form.stock_minimo) || 0,
           unidad_medida: form.unidad_medida.trim().toUpperCase(),
           // Valuación: siempre costo promedio. Era un selector en el formulario,
@@ -793,9 +794,14 @@ export default function NuevoProductoPage() {
                 />
               </div>
             </div>
-            {parseInt(form.stock_actual) > 0 && (
-              <p className="mt-2 text-xs text-gray-400">
-                Se generará automáticamente un movimiento de inventario inicial con {form.stock_actual} unidades al guardar.
+            {parseFloat(String(form.stock_actual).replace(",", ".")) > 0 && (
+              <p className="mt-2 text-xs text-gray-500">
+                Se carga como inventario inicial en{" "}
+                <b>
+                  {ubicaciones.find((u) => u.id === ubicacionId)?.nombre ??
+                    (claseVendible(clase) ? "el Punto de venta" : "la Fábrica / depósito")}
+                </b>
+                {ubicacionId ? "" : " (elegí otra en «Ubicación principal» si va a otro depósito)"}.
               </p>
             )}
           </div>
