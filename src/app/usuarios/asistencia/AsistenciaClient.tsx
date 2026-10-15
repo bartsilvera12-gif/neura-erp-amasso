@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api/fetch-with-supabase-session";
 import Link from "next/link";
 import { useIsAdmin } from "@/lib/auth/use-is-admin";
-import { DiaModal, Marcaciones } from "./Marcaciones";
+import { DiaModal, EVENTO_MARCACION, Marcaciones } from "./Marcaciones";
 
 /**
  * RRHH › Asistencia. Vistas:
@@ -259,6 +259,13 @@ function Planilla({ puedeEditar, irAEmpleados }: { puedeEditar: boolean; irAEmpl
 
   useEffect(() => {
     void cargar();
+  }, [cargar]);
+
+  // Alguien marcó con el botón de arriba mientras la planilla estaba abierta.
+  useEffect(() => {
+    const alMarcar = () => void cargar();
+    window.addEventListener(EVENTO_MARCACION, alMarcar);
+    return () => window.removeEventListener(EVENTO_MARCACION, alMarcar);
   }, [cargar]);
 
   async function guardar(empleadoId: string, cambios: Record<string, unknown>) {

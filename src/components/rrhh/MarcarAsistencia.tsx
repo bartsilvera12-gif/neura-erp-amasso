@@ -200,6 +200,8 @@ export function Pantalla({ onCerrar, terminal = false }: { onCerrar: () => void;
       setPin("");
       setIdent(null);
       setHecho(r);
+      // Para que la planilla y las marcaciones abiertas se actualicen solas.
+      window.dispatchEvent(new Event("rrhh:marcacion"));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

@@ -709,7 +709,16 @@ export async function jornadasIncompletas(schemaRaw: string, empresaId: string):
 export type DetalleDia = {
   empleado: { id: string; nombre: string };
   jornada: string;
-  eventos: { id: string; tipo: TipoEvento; hora: string; origen: string; sesion_usuario_nombre: string | null; anulado: boolean }[];
+  eventos: {
+    id: string;
+    tipo: TipoEvento;
+    hora: string;
+    origen: string;
+    sesion_usuario_nombre: string | null;
+    anulado: boolean;
+    /** Tuvo una corrección (cambio de hora o anulación). */
+    corregido: boolean;
+  }[];
   correcciones: { accion: string; antes: unknown; despues: unknown; motivo: string; usuario_nombre: string | null; cuando: string }[];
   /** Totales del día con las reglas de la configuración. */
   totales: { trabajado_min: number | null; break_min: number; almuerzo_min: number; fuera_min: number; avisos: string[] };
@@ -723,8 +732,9 @@ export async function detalleDia(schemaRaw: string, empresaId: string, empleadoI
   );
   if (!emp.rows[0]) throw new AsistenciaError("Empleado no encontrado.", 404);
   const eventos = await pool().query<DetalleDia["eventos"][number]>(
-    `SELECT id, tipo, to_char(momento AT TIME ZONE '${ZONA}', 'HH24:MI') AS hora, origen, sesion_usuario_nombre, anulado
-       FROM ${EV} WHERE empresa_id = $1::uuid AND empleado_id = $2::uuid AND jornada = $3::date
+    `SELECT ev.id, ev.tipo, to_char(ev.momento AT TIME ZONE '${ZONA}', 'HH24:MI') AS hora, ev.origen, ev.sesion_usuario_nombre, ev.anulado,
+            EXISTS (SELECT 1 FROM ${C} c WHERE c.evento_id = ev.id AND c.accion <> 'agregar') AS corregido
+       FROM ${EV} ev WHERE ev.empresa_id = $1::uuid AND ev.empleado_id = $2::uuid AND ev.jornada = $3::date
       ORDER BY momento, created_at`,
     [empresaId, empleadoId, jornadaRaw]
   );

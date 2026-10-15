@@ -54,7 +54,15 @@ type Incompleta = { empleado_id: string; empleado: string; jornada: string; ulti
 type Detalle = {
   empleado: { id: string; nombre: string };
   jornada: string;
-  eventos: { id: string; tipo: TipoEvento; hora: string; origen: string; sesion_usuario_nombre: string | null; anulado: boolean }[];
+  eventos: {
+    id: string;
+    tipo: TipoEvento;
+    hora: string;
+    origen: string;
+    sesion_usuario_nombre: string | null;
+    anulado: boolean;
+    corregido?: boolean;
+  }[];
   correcciones: {
     accion: "agregar" | "modificar" | "anular";
     antes: { tipo?: TipoEvento; hora?: string } | null;
@@ -86,6 +94,9 @@ async function pedir<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 const fechaCorta = (f: string) => f.split("-").reverse().join("/");
+
+/** Lo dispara la pantalla "Marcar asistencia" cada vez que alguien marca. */
+export const EVENTO_MARCACION = "rrhh:marcacion";
 
 function hoyPY(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Asuncion", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -138,6 +149,13 @@ export function Marcaciones({ empleados }: { empleados: { id: string; nombre: st
 
   useEffect(() => {
     void cargar();
+  }, [cargar]);
+
+  // Alguien marcó con el botón de arriba mientras esta pestaña estaba abierta.
+  useEffect(() => {
+    const alMarcar = () => void cargar();
+    window.addEventListener(EVENTO_MARCACION, alMarcar);
+    return () => window.removeEventListener(EVENTO_MARCACION, alMarcar);
   }, [cargar]);
 
   async function exportar() {
@@ -391,7 +409,7 @@ export function DiaModal({
                   <span className="text-[11px] text-slate-400">
                     {ORIGEN[ev.origen] ?? ev.origen}
                     {ev.sesion_usuario_nombre ? ` · ${ev.origen === "admin" ? "por" : "sesión de"} ${ev.sesion_usuario_nombre}` : ""}
-                    {ev.anulado ? " · anulada" : ""}
+                    {ev.anulado ? " · anulada" : ev.corregido ? " · hora corregida (ver historial)" : ""}
                   </span>
                 </span>
                 {!ev.anulado ? (
