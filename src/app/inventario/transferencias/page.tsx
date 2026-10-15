@@ -234,25 +234,43 @@ export default function TransferenciasPage() {
         {historial.length === 0 ? (
           <p className="text-sm text-slate-400">Todavía no hay transferencias.</p>
         ) : (
-          <ul className="divide-y divide-slate-100">
-            {historial.map((t) => (
-              <li key={t.referencia} className="py-2.5 text-sm">
-                <div className="flex flex-wrap items-baseline gap-x-3">
-                  <span className="font-mono text-xs text-slate-500">{t.referencia}</span>
-                  <span className="font-medium text-slate-800">
-                    {t.origen ?? "?"} → {t.destino ?? "?"}
-                  </span>
-                  <span className="text-xs text-slate-400">
-                    {new Date(t.fecha).toLocaleString("es-PY", { dateStyle: "short", timeStyle: "short" })}
-                    {t.usuario ? ` · ${t.usuario}` : ""}
-                  </span>
-                </div>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  {t.lineas.map((l) => `${l.producto} × ${l.cantidad.toLocaleString("es-PY")}`).join(" · ")}
-                </p>
-              </li>
-            ))}
-          </ul>
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full min-w-[760px] text-sm">
+              <thead className="bg-slate-50 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                <tr>
+                  <th className="px-4 py-2.5">N.º</th>
+                  <th className="px-4 py-2.5">Fecha</th>
+                  <th className="px-4 py-2.5">Desde</th>
+                  <th className="px-4 py-2.5">Hacia</th>
+                  <th className="px-4 py-2.5">Productos</th>
+                  <th className="px-4 py-2.5">Quién</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {historial.map((t) => (
+                  <tr key={t.referencia} className="align-top transition-colors hover:bg-slate-50/60">
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-500">{t.referencia}</td>
+                    <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
+                      {new Date(t.fecha).toLocaleString("es-PY", { dateStyle: "short", timeStyle: "short" })}
+                    </td>
+                    <td className="px-4 py-3 text-slate-800">{t.origen ?? "—"}</td>
+                    <td className="px-4 py-3 text-slate-800">{t.destino ?? "—"}</td>
+                    <td className="px-4 py-3">
+                      <ul className="space-y-0.5">
+                        {t.lineas.map((l, i) => (
+                          <li key={i} className="flex justify-between gap-4 text-slate-700">
+                            <span>{l.producto}</span>
+                            <span className="tabular-nums font-medium">{l.cantidad.toLocaleString("es-PY")}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-500">{t.usuario ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
     </div>
