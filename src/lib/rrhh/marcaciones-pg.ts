@@ -379,8 +379,11 @@ export async function marcar(
     const avisos: string[] = [];
     const ins = async (tp: TipoEvento) =>
       c.query(
-        `INSERT INTO ${EV} (empresa_id, empleado_id, jornada, tipo, origen, sesion_usuario_id, sesion_usuario_nombre, dispositivo)
-         VALUES ($1::uuid, $2::uuid, $3::date, $4, 'autoservicio', $5::uuid, $6, $7)`,
+        // clock_timestamp y no now(): now() es la hora de la transacción, igual
+        // para el fin de la pausa y la salida que se guardan juntos, y con la
+        // misma hora el orden entre los dos quedaba librado al azar.
+        `INSERT INTO ${EV} (empresa_id, empleado_id, jornada, tipo, momento, created_at, origen, sesion_usuario_id, sesion_usuario_nombre, dispositivo)
+         VALUES ($1::uuid, $2::uuid, $3::date, $4, clock_timestamp(), clock_timestamp(), 'autoservicio', $5::uuid, $6, $7)`,
         [empresaId, id.empleado.id, jornada, tp, sesion.usuarioId, sesion.usuarioNombre, sesion.dispositivo?.slice(0, 200) ?? null]
       );
     // Salida con una pausa abierta (si la configuración lo permite): se cierra la pausa en el mismo momento.
@@ -440,10 +443,11 @@ async function cerrarPorOlvido(
   const pausa = estadoDesdeEventos(evs);
   const motivo = "Cierre automático por olvido de salida (RRHH › Configuración).";
   const agregar = async (tipo: TipoEvento) => {
+    // El fin de la pausa va un segundo antes que la salida, para que el orden no dependa del azar.
     const r = await c.query<{ id: string }>(
       `INSERT INTO ${EV} (empresa_id, empleado_id, jornada, tipo, momento, origen, sesion_usuario_nombre)
-       VALUES ($1::uuid, $2::uuid, $3::date, $4, $5::timestamptz, 'admin', 'Automático') RETURNING id`,
-      [empresaId, emp.id, jornada, tipo, salida.momento]
+       VALUES ($1::uuid, $2::uuid, $3::date, $4, $5::timestamptz - ($6 || ' seconds')::interval, 'admin', 'Automático') RETURNING id`,
+      [empresaId, emp.id, jornada, tipo, salida.momento, tipo === "salida" ? "0" : "1"]
     );
     await c.query(
       `INSERT INTO ${C} (empresa_id, empleado_id, evento_id, jornada, accion, antes, despues, motivo, usuario_nombre)
