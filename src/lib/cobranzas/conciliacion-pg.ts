@@ -530,3 +530,80 @@ export async function sweepReclasificarAnticipos(schemaRaw: string, empresaId: s
   }
   return res;
 }
+
+/**
+ * Corrige un cobro todavía pendiente (no movió plata): monto, fecha, banco,
+ * titular y número de operación. Factura y cliente no: se rechaza y se carga
+ * de nuevo. Uno aprobado no se edita: se anula y se carga otra vez.
+ */
+export async function editarCobroPendiente(
+  schemaRaw: string,
+  empresaId: string,
+  cobroId: string,
+  d: { monto?: unknown; fecha?: unknown; banco_origen?: unknown; titular?: unknown; numero_operacion?: unknown }
+): Promise<CobroPendienteRow> {
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  const tC = quoteSchemaTable(schema, "cobros_pendientes");
+  const tF = quoteSchemaTable(schema, "facturas");
+  const actual = await getCobroPendiente(schemaRaw, empresaId, cobroId);
+  if (!actual) throw new ConciliacionError("Cobro no encontrado.", 404);
+  if (actual.estado !== "pendiente") {
+    throw new ConciliacionError("Solo se edita un cobro pendiente. Uno aprobado se anula y se carga de nuevo.", 409);
+  }
+  const monto = d.monto !== undefined ? Number(String(d.monto).replace(/\D/g, "")) : Number(actual.monto);
+  if (!(monto > 0)) throw new ConciliacionError("El monto tiene que ser mayor a 0.");
+  const { rows: fr } = await pool().query<{ saldo: string }>(
+    `SELECT saldo FROM ${tF} WHERE id = $1::uuid AND empresa_id = $2::uuid`,
+    [actual.factura_id, empresaId]
+  );
+  if (fr[0] && monto > Number(fr[0].saldo)) {
+    throw new ConciliacionError(`El monto supera lo que falta pagar de la factura (Gs. ${Number(fr[0].saldo).toLocaleString("es-PY")}).`);
+  }
+  // `fecha` es date: pg lo devuelve como Date.
+  const fechaActual = (actual.fecha as unknown) instanceof Date
+    ? (actual.fecha as unknown as Date).toISOString().slice(0, 10)
+    : String(actual.fecha).slice(0, 10);
+  const fecha = d.fecha !== undefined ? String(d.fecha).slice(0, 10) : fechaActual;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new ConciliacionError("Fecha inválida.");
+  const banco = d.banco_origen !== undefined ? String(d.banco_origen).trim() : String(actual.banco_origen ?? "");
+  const titular = d.titular !== undefined ? String(d.titular).trim() : String(actual.titular ?? "");
+  const numeroOp = d.numero_operacion !== undefined ? String(d.numero_operacion).trim() : String(actual.numero_operacion ?? "");
+  if (!banco || !titular || !numeroOp) throw new ConciliacionError("Banco, titular y número de operación son obligatorios.");
+  const opNorm = normNumeroOp(numeroOp);
+  if (!opNorm) throw new ConciliacionError("El número de operación no es válido.");
+  try {
+    const { rows } = await pool().query<CobroPendienteRow>(
+      `UPDATE ${tC} SET monto = $3::numeric, fecha = $4::date, banco_origen = $5, banco_origen_norm = $6,
+              titular = $7, numero_operacion = $8, numero_operacion_norm = $9
+        WHERE id = $1::uuid AND empresa_id = $2::uuid AND estado = 'pendiente'
+        RETURNING ${COLS}`,
+      [cobroId, empresaId, monto, fecha, banco, normBanco(banco), titular, numeroOp, opNorm]
+    );
+    if (!rows[0]) throw new ConciliacionError("El cobro ya no está pendiente.", 409);
+    return rows[0];
+  } catch (e) {
+    if ((e as { code?: string })?.code === "23505") {
+      throw new ConciliacionError("Ya existe una transferencia con ese banco y número de operación para esta factura.", 409);
+    }
+    throw e;
+  }
+}
+
+/**
+ * Borra de la lista un cobro rechazado o anulado. Ninguno de los dos movió
+ * plata (el anulado ya revirtió su asiento): el pago revertido y los asientos
+ * quedan como traza contable.
+ */
+export async function eliminarCobro(schemaRaw: string, empresaId: string, cobroId: string): Promise<void> {
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  const tC = quoteSchemaTable(schema, "cobros_pendientes");
+  const actual = await getCobroPendiente(schemaRaw, empresaId, cobroId);
+  if (!actual) throw new ConciliacionError("Cobro no encontrado.", 404);
+  if (actual.estado !== "rechazado" && actual.estado !== "anulado") {
+    throw new ConciliacionError(
+      actual.estado === "pendiente" ? "Para borrarlo, primero rechazalo." : "Para borrarlo, primero anulá la aprobación.",
+      409
+    );
+  }
+  await pool().query(`DELETE FROM ${tC} WHERE id = $1::uuid AND empresa_id = $2::uuid`, [cobroId, empresaId]);
+}

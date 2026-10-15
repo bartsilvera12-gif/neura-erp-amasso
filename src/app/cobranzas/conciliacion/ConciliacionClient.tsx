@@ -57,6 +57,31 @@ export default function ConciliacionClient() {
   const [analisisError, setAnalisisError] = useState<string | null>(null);
   // Modal propio para anular una aprobación (reemplaza el confirm/prompt del navegador).
   const [anularTarget, setAnularTarget] = useState<Cobro | null>(null);
+  // Editar un pendiente / borrar un rechazado o anulado.
+  const [editar, setEditar] = useState<{ id: string; monto: string; fecha: string; banco_origen: string; titular: string; numero_operacion: string } | null>(null);
+  const [guardandoEd, setGuardandoEd] = useState(false);
+
+  async function guardarEdicion() {
+    if (!editar) return;
+    setGuardandoEd(true); setError(null); setOk(null);
+    try {
+      const r = await apiFetch(`/api/cobranzas/conciliacion/${editar.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(editar),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.success) { setError(j?.error ?? `Error ${r.status}`); return; }
+      setEditar(null); setOk("Cobro corregido."); await cargar();
+    } finally { setGuardandoEd(false); }
+  }
+
+  async function borrar(c: Cobro) {
+    if (!window.confirm("¿Borrar este cobro de la lista? No movió plata (o ya se revirtió). No se puede deshacer.")) return;
+    setError(null); setOk(null);
+    const r = await apiFetch(`/api/cobranzas/conciliacion/${c.id}`, { method: "DELETE" });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j?.success) { setError(j?.error ?? `Error ${r.status}`); return; }
+    setOk("Cobro borrado."); await cargar();
+  }
   const [anularMotivo, setAnularMotivo] = useState("");
   const [anularBusy, setAnularBusy] = useState(false);
   // Animación de aprobación: spinner → check.
@@ -347,8 +372,20 @@ export default function ConciliacionClient() {
                       {c.estado === "pendiente" && (
                         <>
                           <button onClick={() => accion(c.id, "aprobar")} className="rounded bg-emerald-600 px-2 py-1 font-semibold text-white hover:bg-emerald-700">Aprobar</button>
+                          <button
+                            onClick={() => setEditar({
+                              id: c.id, monto: String(Math.round(n(c.monto))), fecha: String(c.fecha).slice(0, 10),
+                              banco_origen: c.banco_origen ?? "", titular: c.titular ?? "", numero_operacion: c.numero_operacion ?? "",
+                            })}
+                            className="rounded px-2 py-1 text-slate-600 hover:bg-slate-100"
+                          >
+                            Editar
+                          </button>
                           <button onClick={() => accion(c.id, "rechazar")} className="rounded px-2 py-1 text-red-600 hover:bg-red-50">Rechazar</button>
                         </>
+                      )}
+                      {(c.estado === "rechazado" || c.estado === "anulado") && (
+                        <button onClick={() => void borrar(c)} className="rounded px-2 py-1 text-red-600 hover:bg-red-50">Eliminar</button>
                       )}
                       {c.estado === "aprobado" && (
                         <button onClick={() => { setAnularTarget(c); setAnularMotivo(""); }} title="Anular la aprobación (revierte el asiento y restaura el saldo)" className="rounded border border-red-200 px-2 py-1 font-semibold text-red-600 hover:bg-red-50">Anular</button>
@@ -365,6 +402,41 @@ export default function ConciliacionClient() {
       {modal && (
         <ModalRegistrar facturas={facturas} onClose={() => setModal(false)}
           onSaved={(msg) => { setModal(false); setOk(msg); cargar(); }} />
+      )}
+
+      {editar && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 p-4" onClick={() => setEditar(null)}>
+          <div role="dialog" aria-modal="true" className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-slate-900">Corregir cobro pendiente</h3>
+            <p className="mt-0.5 text-xs text-slate-500">Todavía no movió plata. Para cambiar la factura, rechazalo y cargalo de nuevo.</p>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              {([
+                ["monto", "Monto (Gs.)", "text"],
+                ["fecha", "Fecha", "date"],
+                ["banco_origen", "Banco de origen", "text"],
+                ["titular", "Titular", "text"],
+                ["numero_operacion", "N.º de operación", "text"],
+              ] as const).map(([k, label, type]) => (
+                <label key={k} className={`text-xs font-medium text-slate-500 ${k === "numero_operacion" ? "col-span-2" : ""}`}>
+                  {label}
+                  <input
+                    type={type}
+                    inputMode={k === "monto" ? "numeric" : undefined}
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-800 focus:border-[#4FAEB2] focus:outline-none focus:ring-2 focus:ring-[#4FAEB2]/30"
+                    value={editar[k]}
+                    onChange={(e) => setEditar({ ...editar, [k]: k === "monto" ? e.target.value.replace(/\D/g, "") : e.target.value })}
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setEditar(null)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">Cancelar</button>
+              <button disabled={guardandoEd} onClick={() => void guardarEdicion()} className="rounded-lg bg-[#4FAEB2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3F8E91] disabled:opacity-50">
+                {guardandoEd ? "Guardando…" : "Guardar"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {anularTarget && (
