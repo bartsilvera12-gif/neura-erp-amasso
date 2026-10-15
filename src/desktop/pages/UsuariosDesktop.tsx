@@ -65,6 +65,29 @@ export default function UsuariosPage() {
   const [nuevoOpen, setNuevoOpen] = useState(false);
   const [detalleId, setDetalleId] = useState<string | null>(null);
   const [detalleEditing, setDetalleEditing] = useState(false);
+  const [borrando, setBorrando] = useState<UsuarioRow | null>(null);
+  const [ocupadoBorrar, setOcupadoBorrar] = useState(false);
+  const [avisoBorrado, setAvisoBorrado] = useState<string | null>(null);
+
+  async function confirmarBorrar() {
+    if (!borrando) return;
+    setOcupadoBorrar(true);
+    try {
+      const r = await fetchWithSupabaseSession(`/api/empresas/usuarios/${borrando.id}`, { method: "DELETE" });
+      const j = (await r.json().catch(() => ({}))) as { error?: string; mensaje?: string };
+      if (!r.ok) {
+        setAvisoBorrado(j.error ?? "No se pudo borrar el usuario.");
+      } else {
+        setAvisoBorrado(`${borrando.nombre || borrando.email}: ${j.mensaje ?? "borrado."}`);
+        recargar();
+      }
+    } catch {
+      setAvisoBorrado("Error de red al borrar el usuario.");
+    } finally {
+      setOcupadoBorrar(false);
+      setBorrando(null);
+    }
+  }
 
   const recargar = () => {
     fetchWithSupabaseSession("/api/empresas/usuarios", { cache: "no-store" })
@@ -358,6 +381,14 @@ export default function UsuariosPage() {
                             </svg>
                             Editar
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => setBorrando(usr)}
+                            title="Borrar usuario"
+                            className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                          >
+                            Borrar
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -368,6 +399,41 @@ export default function UsuariosPage() {
           </div>
         )}
       </div>
+
+      {avisoBorrado ? (
+        <div className="fixed bottom-5 left-1/2 z-[80] flex max-w-md -translate-x-1/2 items-start gap-3 rounded-xl bg-slate-900 px-4 py-3 text-sm text-white shadow-xl">
+          <span>{avisoBorrado}</span>
+          <button type="button" onClick={() => setAvisoBorrado(null)} className="text-slate-300 hover:text-white" aria-label="Cerrar aviso">
+            ✕
+          </button>
+        </div>
+      ) : null}
+
+      {borrando ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm" onClick={() => setBorrando(null)}>
+          <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-slate-900">¿Borrar a {borrando.nombre || borrando.email}?</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              Pierde el acceso al ERP y se borra de la lista. Si tiene ventas, compras u otros movimientos a su nombre, no se
+              borra: queda desactivado, para no perder ese historial.
+            </p>
+            <p className="mt-2 text-xs text-slate-500">Esto es para usuarios del sistema. Los empleados se manejan en RRHH.</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setBorrando(null)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={ocupadoBorrar}
+                onClick={() => void confirmarBorrar()}
+                className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+              >
+                {ocupadoBorrar ? "Borrando…" : "Borrar usuario"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <UsuarioNuevoModal
         open={nuevoOpen}

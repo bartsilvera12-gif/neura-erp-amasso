@@ -212,7 +212,7 @@ export default function PlanDeCuentasPage() {
       description="Administración de cuentas contables, niveles, naturaleza y configuración fiscal."
       maxWidthClassName="max-w-[1600px]"
     >
-      <CuentasDeUso cuentas={cuentas} cargando={loading} />
+      <CuentasDeUso cuentas={cuentas} cargando={loading} onEditar={openEditar} onEliminar={(c) => void eliminar(c)} />
 
       {/* Indicadores */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -471,7 +471,17 @@ const CUENTAS_DE_USO: { cuenta: string; nombre: string; uso: string }[] = [
   { cuenta: "1.2.01", nombre: "Equipos y mejoras", uso: "Inversiones" },
 ];
 
-function CuentasDeUso({ cuentas, cargando }: { cuentas: PlanCuentaItem[]; cargando: boolean }) {
+function CuentasDeUso({
+  cuentas,
+  cargando,
+  onEditar,
+  onEliminar,
+}: {
+  cuentas: PlanCuentaItem[];
+  cargando: boolean;
+  onEditar: (c: PlanCuentaItem) => void;
+  onEliminar: (c: PlanCuentaItem) => void;
+}) {
   const porCodigo = new Map(cuentas.map((c) => [c.cuenta, c]));
   return (
     <section className="rounded-2xl border border-[#4FAEB2]/30 bg-[#4FAEB2]/5 p-4">
@@ -487,16 +497,37 @@ function CuentasDeUso({ cuentas, cargando }: { cuentas: PlanCuentaItem[]; cargan
             <li key={u.cuenta} className="flex items-center gap-3 rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
               <span className="w-5 text-right font-mono text-xs text-slate-400">{i + 1}</span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-slate-800">{u.nombre}</span>
+                {/* El nombre que tiene en el plan (si lo editaron, se ve el nuevo). */}
+                <span className="block truncate text-sm font-medium text-slate-800" title={c?.denominacion ?? u.nombre}>
+                  {c ? c.denominacion.charAt(0) + c.denominacion.slice(1).toLowerCase() : u.nombre}
+                </span>
                 <span className="font-mono text-[11px] text-slate-400">
                   {u.cuenta} · {u.uso}
                 </span>
               </span>
               {cargando ? null : !c ? (
                 <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700">Falta</span>
-              ) : !c.activo ? (
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">Inactiva</span>
-              ) : null}
+              ) : (
+                <span className="flex shrink-0 items-center gap-1">
+                  {!c.activo ? (
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">Inactiva</span>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => onEditar(c)}
+                    className="inline-flex h-7 items-center rounded-lg border border-slate-200 px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:border-[#4FAEB2] hover:text-[#2F7A7D]"
+                  >
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onEliminar(c)}
+                    className="inline-flex h-7 items-center rounded-lg border border-slate-200 px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                  >
+                    Borrar
+                  </button>
+                </span>
+              )}
             </li>
           );
         })}

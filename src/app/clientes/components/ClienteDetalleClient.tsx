@@ -2192,7 +2192,7 @@ export default function ClienteDetalleClient({
                               );
                             })()}
                           </td>
-                          <td className="px-4 py-3 align-top">
+                          <td className="px-4 py-3 align-middle">
                             <SifenEstadoBadge estadoSifen={sifenPorFactura[f.id]?.estado_sifen ?? null} />
                           </td>
                           <td className="px-4 py-3 text-right whitespace-nowrap">

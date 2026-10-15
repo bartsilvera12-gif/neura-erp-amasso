@@ -270,7 +270,21 @@ export async function aprobarTransferencia(schemaRaw: string, empresaId: string,
     if (["Anulado", "Corregida NC"].includes(f.estado)) throw new ConciliacionError("La factura está anulada o corregida por NC.");
     const monto = Number(c.monto);
     const saldo = Number(f.saldo);
-    if (monto > saldo) throw new ConciliacionError(`El monto (${monto}) supera el saldo actual de la factura (${saldo}).`, 409);
+    if (saldo <= 0) {
+      // Ya se cobró por otro lado (p. ej. "Registrar pago" en el perfil del
+      // cliente, que aplica el pago en el momento): aprobar esto la cobraría dos veces.
+      throw new ConciliacionError(
+        "Esta factura ya está pagada (saldo 0): este cobro es un duplicado. Rechazalo para sacarlo de la lista.",
+        409
+      );
+    }
+    if (monto > saldo) {
+      const gs = (n: number) => `Gs. ${Math.round(n).toLocaleString("es-PY")}`;
+      throw new ConciliacionError(
+        `El cobro (${gs(monto)}) es mayor que lo que falta pagar de la factura (${gs(saldo)}). Parte ya se cobró por otro lado: rechazá este cobro y cargá uno por ${gs(saldo)}.`,
+        409
+      );
+    }
 
     const esAnticipo = f.estado_contable !== "contabilizado";
 

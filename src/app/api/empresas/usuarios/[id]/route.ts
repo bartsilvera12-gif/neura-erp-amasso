@@ -1,6 +1,7 @@
 import { supabaseServiceRoleClientOptions } from "@/lib/supabase/schema";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { getChatPostgresPool } from "@/lib/supabase/chat-pg-pool";
 import { getServiceAuthUsuario } from "@/lib/auth/get-service-auth-usuario";
 import { canonicalErpRol } from "@/lib/usuarios/erp-rol-normalize";
 import {
@@ -630,5 +631,99 @@ export async function PATCH(
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Error";
     return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+/**
+ * DELETE /api/empresas/usuarios/[id] — borra un usuario del sistema. Solo admin.
+ *
+ *  - No se puede borrar el propio usuario ni el último administrador activo.
+ *  - Si tiene movimientos que lo referencian (ventas, compras…), la base no
+ *    deja borrarlo: queda desactivado (sin acceso) y se avisa.
+ *  - La cuenta de acceso (Auth) se borra solo si ningún otro ERP de la
+ *    Supabase compartida la usa; si la usa otro, no se toca.
+ */
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params;
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !serviceKey) return NextResponse.json({ error: "Config no disponible" }, { status: 500 });
+
+    const authR = await getServiceAuthUsuario(req);
+    if (!authR.ok) return NextResponse.json({ error: "No autenticado" }, { status: authR.status });
+    const yo = authR.catalogUsuario;
+    const rolYo = (yo?.rol ?? "").trim();
+    if (!yo || !(rolYo === "super_admin" || esRolAdminEmpresa(rolYo))) {
+      return NextResponse.json({ error: "Solo un administrador puede borrar usuarios." }, { status: 403 });
+    }
+    if (yo.id === id) return NextResponse.json({ error: "No podés borrar tu propio usuario." }, { status: 400 });
+
+    const supabase = createClient(url, serviceKey, { ...supabaseServiceRoleClientOptions });
+    const { data: usuario } = await supabase
+      .from("usuarios")
+      .select("id, email, estado, auth_user_id, empresa_id, rol")
+      .eq("id", id)
+      .maybeSingle();
+    if (!usuario) return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
+    if (rolYo !== "super_admin" && usuario.empresa_id !== yo.empresa_id) {
+      return NextResponse.json({ error: "Sin permiso para borrar este usuario" }, { status: 403 });
+    }
+    if (esRolAdminEmpresa(usuario.rol)) {
+      const { count } = await supabase
+        .from("usuarios")
+        .select("id", { count: "exact", head: true })
+        .eq("empresa_id", usuario.empresa_id)
+        .eq("estado", "activo")
+        .in("rol", ["admin", "administrador"]);
+      if ((count ?? 0) <= 1) {
+        return NextResponse.json({ error: "Es el último administrador: no se puede borrar." }, { status: 400 });
+      }
+    }
+
+    // ¿Otro ERP usa la misma cuenta de acceso? (mismo auth_user_id en otro schema)
+    const authId = usuario.auth_user_id as string | null;
+    let authCompartida = false;
+    if (authId) {
+      const pool = getChatPostgresPool();
+      if (pool) {
+        const tablas = await pool.query<{ s: string }>(
+          `SELECT table_schema AS s FROM information_schema.columns
+            WHERE table_name = 'usuarios' AND column_name = 'auth_user_id'`
+        );
+        for (const { s } of tablas.rows) {
+          const r = await pool.query<{ n: string }>(
+            `SELECT count(*)::text AS n FROM "${s.replace(/"/g, "")}".usuarios WHERE auth_user_id = $1::uuid AND id <> $2::uuid`,
+            [authId, id]
+          );
+          if (Number(r.rows[0]?.n ?? 0) > 0) authCompartida = true;
+        }
+      } else {
+        authCompartida = true; // sin poder verificar, no se toca
+      }
+    }
+
+    await supabase.from("usuario_modulos").delete().eq("usuario_id", id);
+    const { error: errDel } = await supabase.from("usuarios").delete().eq("id", id);
+    if (errDel) {
+      // Tiene movimientos que lo referencian: se desactiva en vez de borrar.
+      await supabase.from("usuarios").update({ estado: "inactivo" }).eq("id", id);
+      if (authId && !authCompartida) {
+        await supabase.auth.admin.updateUserById(authId, { ban_duration: "876000h" } as { ban_duration?: string });
+      }
+      return NextResponse.json({
+        borrado: false,
+        desactivado: true,
+        mensaje:
+          "Tiene movimientos registrados a su nombre (ventas, compras u otros), así que no se puede borrar: quedó desactivado y ya no puede entrar.",
+      });
+    }
+    if (authId && !authCompartida) {
+      await supabase.auth.admin.deleteUser(authId);
+    }
+    return NextResponse.json({ borrado: true, desactivado: false, mensaje: "Usuario borrado." });
+  } catch (e) {
+    console.error("[DELETE /api/empresas/usuarios/[id]]", e instanceof Error ? e.message : e);
+    return NextResponse.json({ error: "No se pudo borrar el usuario." }, { status: 500 });
   }
 }
