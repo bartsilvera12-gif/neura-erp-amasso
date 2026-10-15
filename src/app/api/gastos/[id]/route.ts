@@ -4,7 +4,7 @@ import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema"
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import { requireContabilidadApiAccess } from "@/lib/contabilidad/contabilidad-auth";
-import { getGasto, updateBorrador, deleteBorrador, parseGastoHeaderInput, GastoError } from "@/lib/gastos/server/gastos-pg";
+import { getGasto, updateBorrador, deleteBorrador, parseGastoHeaderInput, updateDatosComprobante, GastoError } from "@/lib/gastos/server/gastos-pg";
 
 export const runtime = "nodejs";
 
@@ -33,7 +33,13 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
     const schema = await fetchDataSchemaForEmpresaId(auth.empresaId);
-    const input = parseGastoHeaderInput(await request.json().catch(() => ({})));
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    // Gasto confirmado: solo los datos del comprobante (no mueven plata).
+    if (body.solo_comprobante === true) {
+      const header = await updateDatosComprobante(schema, auth.empresaId, id, body);
+      return NextResponse.json(successResponse({ gasto: header }));
+    }
+    const input = parseGastoHeaderInput(body);
     const header = await updateBorrador(schema, auth.empresaId, id, input);
     return NextResponse.json(successResponse({ gasto: header }));
   } catch (e) {
@@ -43,7 +49,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   }
 }
 
-/** DELETE /api/gastos/[id] — elimina un borrador. */
+/** DELETE /api/gastos/[id] — elimina un borrador o un gasto ya anulado. */
 export async function DELETE(request: NextRequest, context: RouteContext) {
   const auth = await requireContabilidadApiAccess(request);
   if (!auth.ok) return NextResponse.json(errorResponse(auth.message), { status: auth.status });

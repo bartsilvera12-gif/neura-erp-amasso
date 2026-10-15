@@ -531,6 +531,51 @@ export async function updateBorrador(
   }
 }
 
+/**
+ * Datos del comprobante de un gasto ya confirmado: tipo, número, timbrado,
+ * fecha del comprobante y descripción. No tocan montos, cuentas ni el asiento.
+ * Lo que cambia la plata (montos, líneas, cuentas, contado/crédito) se corrige
+ * anulando y cargando de nuevo.
+ */
+export async function updateDatosComprobante(
+  schemaRaw: string,
+  empresaId: string,
+  id: string,
+  d: { tipo_comprobante?: unknown; numero_comprobante?: unknown; timbrado?: unknown; fecha_comprobante?: unknown; descripcion?: unknown }
+): Promise<GastoRow> {
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  const tG = quoteSchemaTable(schema, "gastos");
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  const txt = (v: unknown, max: number) => {
+    const t = String(v ?? "").trim();
+    return t ? t.slice(0, max) : null;
+  };
+  const add = (col: string, val: unknown, cast = "") => {
+    vals.push(val);
+    sets.push(`${col} = $${vals.length + 2}${cast}`);
+  };
+  if (d.tipo_comprobante !== undefined) add("tipo_comprobante", txt(d.tipo_comprobante, 40));
+  if (d.numero_comprobante !== undefined) add("numero_comprobante", txt(d.numero_comprobante, 40));
+  if (d.timbrado !== undefined) add("timbrado", txt(d.timbrado, 20));
+  if (d.descripcion !== undefined) add("descripcion", txt(d.descripcion, 500));
+  if (d.fecha_comprobante !== undefined) {
+    const f = txt(d.fecha_comprobante, 10);
+    if (f && !/^\d{4}-\d{2}-\d{2}$/.test(f)) throw new GastoError("Fecha del comprobante inválida.", 400);
+    add("fecha_comprobante", f, "::date");
+  }
+  if (sets.length === 0) throw new GastoError("No hay cambios para guardar.", 400);
+  const { rows } = await pool().query<{ estado: string }>(
+    `UPDATE ${tG} SET ${sets.join(", ")}, updated_at = now()
+      WHERE id = $1::uuid AND empresa_id = $2::uuid AND estado <> 'anulado'
+      RETURNING estado`,
+    [id, empresaId, ...vals]
+  );
+  if (!rows[0]) throw new GastoError("Documento no encontrado o anulado.", 404);
+  const full = await getGasto(schema, empresaId, id);
+  return full!.header;
+}
+
 export async function deleteBorrador(schemaRaw: string, empresaId: string, id: string): Promise<void> {
   const schema = assertAllowedChatDataSchema(schemaRaw);
   const tG = quoteSchemaTable(schema, "gastos");
@@ -542,7 +587,11 @@ export async function deleteBorrador(schemaRaw: string, empresaId: string, id: s
       [id, empresaId]
     );
     if (!rows[0]) throw new GastoError("Documento no encontrado.", 404);
-    if (rows[0].estado !== "borrador") throw new GastoError("Solo se pueden eliminar documentos en borrador.", 409);
+    // Borrador: nunca movió nada. Anulado: ya revirtió su asiento; borrarlo solo
+    // lo saca de la lista (los asientos quedan como traza contable).
+    if (rows[0].estado !== "borrador" && rows[0].estado !== "anulado") {
+      throw new GastoError("Para borrarlo, primero anulalo.", 409);
+    }
     await client.query(`DELETE FROM ${tG} WHERE id = $1::uuid AND empresa_id = $2::uuid`, [id, empresaId]);
     await client.query("COMMIT");
   } catch (e) {

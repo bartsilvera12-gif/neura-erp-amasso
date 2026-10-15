@@ -130,6 +130,8 @@ export async function GET(request: NextRequest) {
             .from("gastos")
             .select("monto, fecha, categoria, descripcion, tipo")
             .eq("empresa_id", empresaId)
+            // Anulados y borradores no son gastos: antes se sumaban igual.
+            .not("estado", "in", "(anulado,borrador)")
             .gte("fecha", desde)
             .lt("fecha", hastaEx)
             .order("fecha", { ascending: false })

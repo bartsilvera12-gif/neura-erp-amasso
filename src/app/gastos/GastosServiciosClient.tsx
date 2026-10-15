@@ -7,7 +7,7 @@ import { getProveedores } from "@/lib/proveedores/storage";
 import type { Proveedor } from "@/lib/proveedores/types";
 import MontoInput from "@/components/ui/MontoInput";
 import {
-  confirmarNuevo, confirmarExistente, eliminarBorrador, anularGasto, getGastoDetalle,
+  confirmarNuevo, confirmarExistente, eliminarBorrador, anularGasto, getGastoDetalle, editarDatosComprobante,
   type GastoHeaderForm, type GastoItemForm, type IvaTipo, type GastoEstado,
 } from "@/lib/gastos/servicios-client";
 import { FechaSelect } from "@/components/ui/FechaSelect";
@@ -113,11 +113,41 @@ export default function GastosServiciosClient() {
   function abrirEditar(id: string) { setMode("editar"); setEditId(id); setFormOpen(true); }
   function abrirCompletar(id: string) { setMode("completar"); setEditId(id); setFormOpen(true); }
 
+  /**
+   * Eliminar: un borrador o un anulado se borran directo. Uno confirmado primero
+   * se anula (revierte su asiento) y después se borra de la lista.
+   */
   async function accionEliminar(g: Gasto) {
-    if (!window.confirm(`¿Eliminar el borrador? Esta acción no se puede deshacer.`)) return;
     setError(null);
+    if (g.estado === "confirmado") {
+      const motivo = window.prompt(
+        `¿Eliminar ${g.numero ?? "este gasto"}? Primero se anula (se revierte su asiento) y después se borra de la lista.\n\nMotivo (mín. 3 caracteres):`
+      ) ?? "";
+      if (motivo.trim().length < 3) { if (motivo !== "") setError("Motivo inválido."); return; }
+      const a = await anularGasto(g.id, motivo.trim());
+      if (!a.ok) { setError(a.error); return; }
+    } else if (!window.confirm(`¿Eliminar ${g.numero ?? "este documento"}? No se puede deshacer.`)) {
+      return;
+    }
     const r = await eliminarBorrador(g.id);
+    if (!r.ok) { setError(r.error); await load(); return; }
+    await load();
+  }
+
+  // Edición de los datos del comprobante (gasto confirmado).
+  const [editDatos, setEditDatos] = useState<{
+    id: string; numero: string | null; tipo_comprobante: string; numero_comprobante: string; timbrado: string; fecha_comprobante: string; descripcion: string;
+  } | null>(null);
+  const [guardandoDatos, setGuardandoDatos] = useState(false);
+  async function guardarDatos() {
+    if (!editDatos) return;
+    setGuardandoDatos(true);
+    const { id, numero: _n, ...d } = editDatos;
+    void _n;
+    const r = await editarDatosComprobante(id, d);
+    setGuardandoDatos(false);
     if (!r.ok) { setError(r.error); return; }
+    setEditDatos(null);
     await load();
   }
   async function accionAnular(g: Gasto) {
@@ -225,7 +255,23 @@ export default function GastosServiciosClient() {
                       </>
                     )}
                     {g.estado === "confirmado" && (
-                      <button onClick={() => accionAnular(g)} className="rounded px-2 py-1 text-red-600 hover:bg-red-50">Anular</button>
+                      <>
+                        <button
+                          onClick={() => setEditDatos({
+                            id: g.id, numero: g.numero ?? null,
+                            tipo_comprobante: g.tipo_comprobante ?? "", numero_comprobante: g.numero_comprobante ?? "",
+                            timbrado: g.timbrado ?? "", fecha_comprobante: (g.fecha_comprobante ?? "").slice(0, 10), descripcion: g.descripcion ?? "",
+                          })}
+                          className="rounded px-2 py-1 text-slate-600 hover:bg-slate-100"
+                        >
+                          Editar datos
+                        </button>
+                        <button onClick={() => accionAnular(g)} className="rounded px-2 py-1 text-amber-700 hover:bg-amber-50">Anular</button>
+                        <button onClick={() => accionEliminar(g)} className="rounded px-2 py-1 text-red-600 hover:bg-red-50">Eliminar</button>
+                      </>
+                    )}
+                    {g.estado === "anulado" && (
+                      <button onClick={() => accionEliminar(g)} className="rounded px-2 py-1 text-red-600 hover:bg-red-50">Eliminar</button>
                     )}
                     {g.estado === "historico" && (
                       <button onClick={() => abrirCompletar(g.id)} className="rounded bg-amber-500 px-2 py-1 font-semibold text-white hover:bg-amber-600">Completar</button>
@@ -237,6 +283,60 @@ export default function GastosServiciosClient() {
           </tbody>
         </table>
       </div>
+
+      {editDatos && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 p-4" onClick={() => setEditDatos(null)}>
+          <div role="dialog" aria-modal="true" className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-slate-900">Editar datos de {editDatos.numero ?? "este gasto"}</h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Solo los datos del comprobante. Para cambiar montos, cuentas o proveedor, anulalo y cargalo de nuevo.
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+              {([
+                ["tipo_comprobante", "Tipo de comprobante"],
+                ["numero_comprobante", "N.º de comprobante"],
+                ["timbrado", "Timbrado"],
+              ] as const).map(([k, label]) => (
+                <label key={k} className="text-xs font-medium text-slate-500">
+                  {label}
+                  <input
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-800 focus:border-[#4FAEB2] focus:outline-none focus:ring-2 focus:ring-[#4FAEB2]/30"
+                    value={editDatos[k]}
+                    onChange={(e) => setEditDatos({ ...editDatos, [k]: e.target.value })}
+                  />
+                </label>
+              ))}
+              <label className="text-xs font-medium text-slate-500">
+                Fecha del comprobante
+                <input
+                  type="date"
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-800 focus:border-[#4FAEB2] focus:outline-none focus:ring-2 focus:ring-[#4FAEB2]/30"
+                  value={editDatos.fecha_comprobante}
+                  onChange={(e) => setEditDatos({ ...editDatos, fecha_comprobante: e.target.value })}
+                />
+              </label>
+              <label className="col-span-2 text-xs font-medium text-slate-500">
+                Descripción
+                <input
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-800 focus:border-[#4FAEB2] focus:outline-none focus:ring-2 focus:ring-[#4FAEB2]/30"
+                  value={editDatos.descripcion}
+                  onChange={(e) => setEditDatos({ ...editDatos, descripcion: e.target.value })}
+                />
+              </label>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setEditDatos(null)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">Cancelar</button>
+              <button
+                disabled={guardandoDatos}
+                onClick={() => void guardarDatos()}
+                className="rounded-lg bg-[#4FAEB2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3F8E91] disabled:opacity-50"
+              >
+                {guardandoDatos ? "Guardando…" : "Guardar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {formOpen && (
         <GastoFormModal

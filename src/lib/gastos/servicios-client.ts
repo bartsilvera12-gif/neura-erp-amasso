@@ -84,4 +84,9 @@ export const confirmarExistente = (id: string, h: GastoHeaderForm) =>
   call<GastoResult>(`/api/gastos/${id}/confirmar`, jsonInit("POST", h));
 
 export const eliminarBorrador = (id: string) => call<{ deleted: boolean }>(`/api/gastos/${id}`, { method: "DELETE" });
+/** Datos del comprobante de un gasto confirmado (no tocan montos ni el asiento). */
+export const editarDatosComprobante = (
+  id: string,
+  d: { tipo_comprobante: string; numero_comprobante: string; timbrado: string; fecha_comprobante: string; descripcion: string }
+) => call<GastoResult>(`/api/gastos/${id}`, jsonInit("PATCH", { ...d, solo_comprobante: true }));
 export const anularGasto = (id: string, motivo: string) => call<GastoResult>(`/api/gastos/${id}/anular`, jsonInit("POST", { motivo }));
