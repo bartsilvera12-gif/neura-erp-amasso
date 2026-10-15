@@ -258,7 +258,8 @@ const MENU_STRUCTURE: MenuItem[] = [
       { label: "Bancos", href: "/configuracion/bancos" },
       { label: "Configuración contable", href: "/configuracion/contable" },
       { label: "Facturación", href: "/configuracion/facturacion" },
-      { label: "Equipos y supervisión", href: "/configuracion/omnicanal-equipos" },
+      // "Equipos y supervisión" (chat omnicanal) no va: Amasso no tiene ese
+      // módulo y la pantalla solo decía "Módulo no habilitado".
     ],
   },
   { key: "planes", slug: "planes", label: "Planes", href: "/planes", icon: FileText },
