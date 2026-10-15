@@ -191,3 +191,25 @@ export async function saveTipificacion(
   }
   return rowToTipificacion(data as TipificacionRow);
 }
+
+/** Corrige una tipificación (tipo, resultado u observación). RLS filtra por empresa. */
+export async function updateTipificacion(
+  id: string,
+  cambios: { tipo_gestion: TipoGestion; resultado: ResultadoTipificacion; observacion: string }
+): Promise<boolean> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
+  const { error } = await supabase
+    .from("tipificaciones")
+    .update({ ...cambios, observacion: cambios.observacion.trim() })
+    .eq("id", id);
+  if (error) console.error("[gestion-clientes] updateTipificacion:", error.message);
+  return !error;
+}
+
+/** Borra una tipificación. RLS filtra por empresa. */
+export async function deleteTipificacion(id: string): Promise<boolean> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
+  const { error } = await supabase.from("tipificaciones").delete().eq("id", id);
+  if (error) console.error("[gestion-clientes] deleteTipificacion:", error.message);
+  return !error;
+}

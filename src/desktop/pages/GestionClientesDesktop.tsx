@@ -147,11 +147,14 @@ function FacturaRowAccionesSifen({
   puedeCobrar,
   onCobrar,
   sifenAprobado,
+  cobroEnAprobacion = false,
 }: {
   facturaId: string;
   sifenAprobado: boolean;
   puedeCobrar: boolean;
   onCobrar?: () => void;
+  /** Ya tiene un cobro cargado esperando aprobación en Conciliación bancaria. */
+  cobroEnAprobacion?: boolean;
 }) {
   const btnBase =
     "inline-flex items-center justify-center w-8 h-8 rounded-lg border border-transparent transition-colors text-slate-500 hover:border-[#4FAEB2]/40 hover:text-[#3F8E91] hover:bg-[#4FAEB2]/10";
@@ -174,7 +177,15 @@ function FacturaRowAccionesSifen({
           <Printer className="w-4 h-4" strokeWidth={1.75} />
         </button>
       )}
-      {puedeCobrar && onCobrar ? (
+      {puedeCobrar && cobroEnAprobacion ? (
+        <Link
+          href="/cobranzas/conciliacion"
+          className="ml-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800 transition-colors hover:bg-amber-100"
+          title="El cobro ya se cargó y espera que un administrador lo apruebe en Conciliación bancaria"
+        >
+          Cobro en aprobación
+        </Link>
+      ) : puedeCobrar && onCobrar ? (
         <button
           type="button"
           onClick={onCobrar}
@@ -695,6 +706,25 @@ function GestionClientesPageInner() {
   /** Si el cliente seleccionado tiene una suscripción activa (para reflejarlo en "Condición"). */
   const [selectedTieneSuscripcion, setSelectedTieneSuscripcion] = useState<boolean>(false);
   const [facturas,  setFacturas]  = useState<Factura[]>([]);
+  // Facturas con un cobro cargado que espera aprobación: en vez de "Cobrar"
+  // muestran "Cobro en aprobación" (antes seguía apareciendo "Cobrar" y
+  // parecía que el cobro no se había guardado).
+  const [cobrosEnAprobacion, setCobrosEnAprobacion] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (facturas.length === 0) return;
+    let cancel = false;
+    fetchWithSupabaseSession("/api/cobranzas/conciliacion?estado=pendiente", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { data?: { cobros?: { factura_id: string }[] } | { factura_id: string }[] } | null) => {
+        if (cancel || !j?.data) return;
+        const lista = Array.isArray(j.data) ? j.data : j.data.cobros ?? [];
+        setCobrosEnAprobacion(new Set(lista.map((c) => c.factura_id)));
+      })
+      .catch(() => null);
+    return () => {
+      cancel = true;
+    };
+  }, [facturas]);
   const [modalFacturacion, setModalFacturacion] = useState(false);
   const [modalCambioPlan, setModalCambioPlan] = useState(false);
   const [modalFacturarVenta, setModalFacturarVenta] = useState(false);
@@ -1299,6 +1329,7 @@ function GestionClientesPageInner() {
                                     sifenAprobado={sifenPorFactura[f.id]?.estado_sifen === "aprobado"}
                                     puedeCobrar={facturaPermiteCobro(f)}
                                     onCobrar={() => setFacturaCobroModal(f)}
+                                    cobroEnAprobacion={cobrosEnAprobacion.has(f.id)}
                                   />
                                 </td>
                               </tr>

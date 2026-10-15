@@ -19,6 +19,8 @@ export interface NotaCliente {
   id:    number;
   texto: string;
   fecha: string; // ISO string
+  /** Última edición (ISO), si se editó. */
+  editada?: string | null;
 }
 
 export interface Cliente {

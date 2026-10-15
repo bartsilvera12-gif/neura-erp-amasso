@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useIsAdmin } from "@/lib/auth/use-is-admin";
 import { apiFetch } from "@/lib/api/fetch-with-supabase-session";
 import { hoyYmdLocal } from "@/lib/fechas/calendario";
 import { useBancosActivos } from "@/shared/hooks/useBancosActivos";
@@ -69,6 +71,13 @@ export function RegistrarPagoModal({
   const [cargando, setCargando] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const { isAdmin } = useIsAdmin();
+  // El error va arriba del formulario: en pantallas chicas, con el botón abajo,
+  // no se veía y parecía que no pasaba nada al guardar.
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (errorMsg) errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [errorMsg]);
   const [doneMsg, setDoneMsg] = useState<string | null>(null);
   const { bancos, cuentasPropias } = useBancosActivos(open && !!factura);
 
@@ -192,14 +201,24 @@ export function RegistrarPagoModal({
             >
               {doneEsAviso ? "⚠️" : "✅"} {doneMsg}
             </div>
-            <button type="button" onClick={onClose} className="rounded-lg bg-[#3F8E91] px-4 py-2 text-sm font-medium text-white hover:bg-[#357a7d]">
-              Listo
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={onClose} className="rounded-lg bg-[#3F8E91] px-4 py-2 text-sm font-medium text-white hover:bg-[#357a7d]">
+                Listo
+              </button>
+              {isAdmin && !doneEsAviso ? (
+                <Link
+                  href="/cobranzas/conciliacion"
+                  className="rounded-lg border border-[#4FAEB2] px-4 py-2 text-sm font-medium text-[#2F7A7D] hover:bg-[#4FAEB2]/10"
+                >
+                  Aprobar ahora en Conciliación bancaria →
+                </Link>
+              ) : null}
+            </div>
           </div>
         ) : (
           <>
             {errorMsg && (
-              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{errorMsg}</div>
+              <div ref={errorRef} role="alert" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{errorMsg}</div>
             )}
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
@@ -282,7 +301,7 @@ export function RegistrarPagoModal({
                 </div>
                 <div>
                   <label className={labelClass} htmlFor="rp-banco">Banco de origen</label>
-                  <select id="rp-banco" value={bancoOrigen} onChange={(e) => setBancoOrigen(e.target.value)} className={inputClass} required>
+                  <select id="rp-banco" value={bancoOrigen} onChange={(e) => setBancoOrigen(e.target.value)} className={inputClass}>
                     <option value="">— Seleccioná el banco —</option>
                     {bancos.map((b) => (
                       <option key={b.id} value={b.nombre}>{b.nombre}</option>

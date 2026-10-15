@@ -3,7 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getCliente, clienteNombre } from "@/lib/clientes/storage";
-import { getTipificaciones, saveTipificacion } from "@/lib/gestion-clientes/storage";
+import { deleteTipificacion, getTipificaciones, saveTipificacion, updateTipificacion } from "@/lib/gestion-clientes/storage";
 import type { Cliente } from "@/lib/clientes/types";
 import type { Tipificacion, TipoGestion, ResultadoTipificacion } from "@/lib/gestion-clientes/types";
 
@@ -78,6 +78,37 @@ export default function TipificacionPage() {
   });
 
   const [error, setError] = useState<string | null>(null);
+  const [editando, setEditando] = useState<{
+    id: string;
+    tipo_gestion: TipoGestion;
+    resultado: ResultadoTipificacion;
+    observacion: string;
+  } | null>(null);
+  const [borrando, setBorrando] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+
+  async function guardarEdicion() {
+    if (!editando || !editando.observacion.trim()) return;
+    setOcupado(true);
+    const ok = await updateTipificacion(editando.id, {
+      tipo_gestion: editando.tipo_gestion,
+      resultado: editando.resultado,
+      observacion: editando.observacion,
+    });
+    setOcupado(false);
+    if (!ok) return setError("No se pudo guardar el cambio.");
+    setEditando(null);
+    void cargar();
+  }
+
+  async function confirmarBorrar(tipId: string) {
+    setOcupado(true);
+    const ok = await deleteTipificacion(tipId);
+    setOcupado(false);
+    if (!ok) return setError("No se pudo borrar la tipificación.");
+    setBorrando(null);
+    void cargar();
+  }
 
   async function cargar() {
     const c = await getCliente(id);
@@ -158,7 +189,7 @@ export default function TipificacionPage() {
       </div>
 
       {/* ── Header del cliente ────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-6 py-4">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-gray-900">{clienteNombre(cliente)}</h1>
@@ -178,7 +209,7 @@ export default function TipificacionPage() {
       </div>
 
       {/* ── Formulario de nueva tipificación ─────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="bg-gray-50 border-b border-gray-200 px-6 py-3">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest">
             Nueva tipificación
@@ -197,7 +228,7 @@ export default function TipificacionPage() {
                 name="tipo_gestion"
                 value={form.tipo_gestion}
                 onChange={handleChange}
-                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm outline-none focus:border-gray-500 transition-colors bg-white"
+                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/30 transition-colors bg-white"
               >
                 {TIPOS_GESTION.map((t) => (
                   <option key={t} value={t}>{t}</option>
@@ -214,7 +245,7 @@ export default function TipificacionPage() {
                 name="resultado"
                 value={form.resultado}
                 onChange={handleChange}
-                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm outline-none focus:border-gray-500 transition-colors bg-white"
+                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/30 transition-colors bg-white"
               >
                 {RESULTADOS.map((r) => (
                   <option key={r} value={r}>{r}</option>
@@ -234,7 +265,7 @@ export default function TipificacionPage() {
               onChange={handleChange}
               rows={3}
               placeholder="Describí la gestión realizada con el cliente..."
-              className="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm outline-none focus:border-gray-500 transition-colors resize-none"
+              className="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/30 transition-colors resize-none"
             />
           </div>
 
@@ -258,7 +289,7 @@ export default function TipificacionPage() {
 
           <button
             type="submit"
-            className="bg-gray-900 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors"
+            className="rounded-xl bg-[#4FAEB2] px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#3F8E91]"
           >
             Guardar tipificación
           </button>
@@ -266,7 +297,7 @@ export default function TipificacionPage() {
       </div>
 
       {/* ── Historial de tipificaciones ───────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="bg-gray-50 border-b border-gray-200 px-6 py-3 flex items-center justify-between">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest">
             Historial de tipificaciones
@@ -281,40 +312,112 @@ export default function TipificacionPage() {
             No hay tipificaciones registradas para este cliente.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 bg-gray-50/40">
-                  <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">Fecha</th>
-                  <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">Usuario</th>
-                  <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">Tipo</th>
-                  <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">Resultado</th>
-                  <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">Observación</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {tipificaciones.map((t) => (
-                  <tr key={t.id} className="hover:bg-gray-50/40 transition-colors">
-                    <td className="px-5 py-3 text-xs text-gray-500 whitespace-nowrap">
-                      {formatFechaHora(t.fecha)}
-                    </td>
-                    <td className="px-5 py-3 text-xs font-medium text-gray-700 whitespace-nowrap">
-                      {t.usuario}
-                    </td>
-                    <td className="px-5 py-3">
-                      <BadgeTipo tipo={t.tipo_gestion} />
-                    </td>
-                    <td className="px-5 py-3">
-                      <BadgeResultado resultado={t.resultado} />
-                    </td>
-                    <td className="px-5 py-3 text-sm text-gray-600 max-w-xs">
-                      <p className="line-clamp-2" title={t.observacion}>{t.observacion}</p>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className="space-y-3 p-4">
+            {tipificaciones.map((t) => {
+              const ed = editando?.id === t.id ? editando : null;
+              return (
+                <li key={t.id} className="rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
+                  <div className="flex items-start gap-3 px-5 py-4">
+                    <div className="min-w-0 flex-1">
+                      {ed ? (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <select
+                              value={ed.tipo_gestion}
+                              onChange={(e) => setEditando({ ...ed, tipo_gestion: e.target.value as TipoGestion })}
+                              className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/30"
+                              aria-label="Tipo de gestión"
+                            >
+                              {TIPOS_GESTION.map((x) => <option key={x}>{x}</option>)}
+                            </select>
+                            <select
+                              value={ed.resultado}
+                              onChange={(e) => setEditando({ ...ed, resultado: e.target.value as ResultadoTipificacion })}
+                              className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/30"
+                              aria-label="Resultado"
+                            >
+                              {RESULTADOS.map((x) => <option key={x}>{x}</option>)}
+                            </select>
+                          </div>
+                          <textarea
+                            autoFocus
+                            rows={3}
+                            value={ed.observacion}
+                            onChange={(e) => setEditando({ ...ed, observacion: e.target.value })}
+                            onKeyDown={(e) => e.key === "Escape" && setEditando(null)}
+                            className="w-full resize-none rounded-xl border border-[#4FAEB2] px-3 py-2 text-sm outline-none ring-2 ring-[#4FAEB2]/25"
+                            aria-label="Observación"
+                          />
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <BadgeTipo tipo={t.tipo_gestion} />
+                            <BadgeResultado resultado={t.resultado} />
+                          </div>
+                          <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">{t.observacion}</p>
+                          <p className="mt-2 text-[11px] text-slate-400">
+                            {formatFechaHora(t.fecha)} · {t.usuario}
+                          </p>
+                        </>
+                      )}
+                    </div>
+                    {!ed && borrando !== t.id ? (
+                      <div className="flex shrink-0 gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setEditando({ id: t.id, tipo_gestion: t.tipo_gestion, resultado: t.resultado, observacion: t.observacion })}
+                          className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:border-[#4FAEB2] hover:text-[#2F7A7D]"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBorrando(t.id)}
+                          className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                        >
+                          Borrar
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  {ed ? (
+                    <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-2.5">
+                      <button type="button" onClick={() => setEditando(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={ocupado || !ed.observacion.trim()}
+                        onClick={() => void guardarEdicion()}
+                        className="rounded-lg bg-[#4FAEB2] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#3F8E91] disabled:opacity-50"
+                      >
+                        {ocupado ? "Guardando…" : "Guardar"}
+                      </button>
+                    </div>
+                  ) : null}
+                  {borrando === t.id ? (
+                    <div className="flex items-center justify-between gap-2 border-t border-rose-100 bg-rose-50/60 px-5 py-2.5">
+                      <p className="text-xs text-rose-700">¿Borrar esta tipificación? No se puede deshacer.</p>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setBorrando(null)} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          disabled={ocupado}
+                          onClick={() => void confirmarBorrar(t.id)}
+                          className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+                        >
+                          Borrar
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
         )}
       </div>
 

@@ -70,11 +70,13 @@ interface SupabaseRow {
 function parseNotas(notas: unknown): NotaCliente[] {
   if (!Array.isArray(notas)) return [];
   return notas
-    .filter((n): n is { id?: number; texto?: string; fecha?: string } => n && typeof n === "object")
-    .map((n) => ({
-      id:    typeof n.id === "number" ? n.id : Date.now(),
+    .filter((n): n is { id?: number; texto?: string; fecha?: string; editada?: string } => n && typeof n === "object")
+    // Sin id estable no se podría editar ni borrar: se usa la posición.
+    .map((n, i) => ({
+      id:    typeof n.id === "number" ? n.id : i + 1,
       texto: typeof n.texto === "string" ? n.texto : "",
       fecha: typeof n.fecha === "string" ? n.fecha : new Date().toISOString(),
+      editada: typeof n.editada === "string" ? n.editada : null,
     }));
 }
 
@@ -581,6 +583,32 @@ export async function addNotaCliente(clienteId: string, texto: string): Promise<
 
   if (error) console.error("[clientes] addNotaCliente:", error.message);
   return nota;
+}
+
+/** Reemplaza las notas del cliente (para editar o borrar una). */
+async function guardarNotas(clienteId: string, notas: NotaCliente[]): Promise<boolean> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
+  const { error } = await supabase
+    .from("clientes")
+    .update({ notas, updated_at: new Date().toISOString() })
+    .eq("id", clienteId);
+  if (error) console.error("[clientes] guardarNotas:", error.message);
+  return !error;
+}
+
+/** Cambia el texto de una nota. Guarda cuándo se editó. */
+export async function editarNotaCliente(clienteId: string, notaId: number, texto: string): Promise<boolean> {
+  const notas = await getNotasCliente(clienteId);
+  return guardarNotas(
+    clienteId,
+    notas.map((n) => (n.id === notaId ? { ...n, texto: texto.trim(), editada: new Date().toISOString() } : n))
+  );
+}
+
+/** Borra una nota del cliente. */
+export async function borrarNotaCliente(clienteId: string, notaId: number): Promise<boolean> {
+  const notas = await getNotasCliente(clienteId);
+  return guardarNotas(clienteId, notas.filter((n) => n.id !== notaId));
 }
 
 export async function toggleEstado(id: string, estado: EstadoCliente): Promise<void> {

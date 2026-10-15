@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import type { ClienteHistorialRow } from "@/lib/auditoria/cliente-historial-servidor";
+import { etiquetaAccion, resumenCambiosHistorial, textoDuplicado } from "@/lib/clientes/historial-formato";
 
 function formatFechaHora(iso: string) {
   try {
@@ -57,7 +58,7 @@ function textoDetalle(f: ClienteHistorialRow) {
       `Importe nuevo plan: ${mon === "USD" ? "US$ " : "Gs. "}${Number(d.precio_nuevo).toLocaleString("es-PY")} ${mon}`
     );
   }
-  return partes.join(" · ") || f.accion;
+  return partes.join(" · ");
 }
 
 export function ModalHistorialClienteGestion({
@@ -109,25 +110,47 @@ export function ModalHistorialClienteGestion({
           {error && <p className="text-sm text-red-600">{error}</p>}
 
           {!loading && !error && filas.length === 0 && (
-            <p className="text-sm text-slate-500">No hay registros de historial aún. Los cambios de plan quedan trazados aquí.</p>
+            <p className="text-sm text-slate-500">
+              No hay registros aún. Acá quedan el alta del cliente, las ediciones de sus datos (antes → después), las bajas y
+              reactivaciones, los intentos de cargarlo duplicado y los cambios de plan.
+            </p>
           )}
 
           {!loading && !error && filas.length > 0 && (
             <ul className="space-y-3">
-              {filas.map((f) => (
-                <li
-                  key={f.id}
-                  className="rounded-lg border border-slate-200 bg-slate-50/80 p-3 text-sm text-slate-800"
-                >
-                  <div className="flex flex-wrap items-baseline justify-between gap-2 text-[11px] text-slate-500">
-                    <span className="font-mono text-slate-400">{f.tipo}</span>
-                    <span className="tabular-nums">{formatFechaHora(f.created_at)}</span>
+              {filas.map((f) => {
+                const meta = etiquetaAccion(f.accion, f.tipo);
+                const detalle = (f.detalle ?? null) as Record<string, unknown> | null;
+                const cambios = resumenCambiosHistorial(detalle);
+                const plan = textoDetalle(f);
+                const motivo = detalle && typeof detalle.motivo === "string" ? detalle.motivo : null;
+                return (
+                <li key={f.id} className="rounded-xl border border-slate-200 bg-white p-3.5 text-sm text-slate-800 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${meta.color}`}>
+                      {meta.label}
+                    </span>
+                    <span className="text-xs tabular-nums text-slate-400">{formatFechaHora(f.created_at)}</span>
                   </div>
-                  <p className="mt-0.5 font-medium text-slate-900">{f.accion}</p>
-                  <p className="mt-1 text-slate-700">{textoDetalle(f)}</p>
-                  <p className="mt-1.5 text-xs text-slate-500">
-                    Usuario: {f.creado_por_email || f.creado_por_auth_user_id || "—"}
-                  </p>
+                  {f.accion === "duplicate_blocked" ? <p className="mt-2 text-slate-700">{textoDuplicado(detalle)}</p> : null}
+                  {plan ? <p className="mt-2 text-slate-700">{plan}</p> : null}
+                  {cambios.length > 0 ? (
+                    <ul className="mt-2 space-y-1">
+                      {cambios.map((c, i) => (
+                        <li key={i} className="text-xs text-slate-600">
+                          <span className="font-medium text-slate-700">{c.campo}:</span>{" "}
+                          <span className="text-rose-600 line-through">{c.antes}</span> <span aria-hidden>→</span>{" "}
+                          <span className="text-emerald-700">{c.despues}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {motivo ? (
+                    <p className="mt-2 text-xs text-slate-500">
+                      <span className="font-medium text-slate-600">Motivo:</span> {motivo}
+                    </p>
+                  ) : null}
+                  <p className="mt-2 text-xs text-slate-400">por {f.creado_por_email || "el sistema"}</p>
                   {f.factura_id ? (
                     <Link
                       href={`/facturas/${f.factura_id}`}
@@ -137,7 +160,8 @@ export function ModalHistorialClienteGestion({
                     </Link>
                   ) : null}
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </div>

@@ -67,7 +67,7 @@ export function CondonarSaldoButton({
 
   const triggerCls =
     variant === "compact"
-      ? "inline-flex items-center justify-center rounded-lg border border-amber-300 bg-white px-2 py-1 text-[11px] font-semibold text-amber-700 transition-colors hover:border-amber-400 hover:bg-amber-50"
+      ? "inline-flex h-7 items-center justify-center rounded-lg border border-amber-300 bg-white px-2.5 text-[11px] font-semibold text-amber-700 transition-colors hover:border-amber-400 hover:bg-amber-50"
       : "inline-flex items-center justify-center rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-700 transition-colors hover:border-amber-400 hover:bg-amber-50";
 
   const fmt = (v: number) => Math.round(Number(v) || 0).toLocaleString("es-PY");

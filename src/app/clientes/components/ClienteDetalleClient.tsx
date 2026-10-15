@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   addNotaCliente,
+  editarNotaCliente,
+  borrarNotaCliente,
   clienteNombre,
   getCliente,
   toggleEstado,
@@ -43,6 +45,7 @@ import MontoInput from "@/components/ui/MontoInput";
 import { getPlanes } from "@/lib/planes/storage";
 import { hoyYmdLocal, vencimientoPeriodo } from "@/lib/fechas/calendario";
 import type { Cliente, NotaCliente } from "@/lib/clientes/types";
+import { ACCION_HISTORIAL, resumenCambiosHistorial, textoDuplicado } from "@/lib/clientes/historial-formato";
 import type { Factura } from "@/lib/gestion-clientes/types";
 import {
   clasesBadgeEstadoFacturaUi,
@@ -136,48 +139,6 @@ function formatFechaHora(iso: string) {
 }
 
 // ── Auditoría / Historial de cambios ───────────────────────────────────────────
-const ACCION_HISTORIAL: Record<string, { label: string; color: string }> = {
-  create:            { label: "Cliente creado",          color: "bg-emerald-100 text-emerald-700" },
-  update:            { label: "Datos editados",          color: "bg-sky-100 text-sky-700" },
-  deactivate:        { label: "Baja / inactivación",     color: "bg-rose-100 text-rose-700" },
-  reactivate:        { label: "Reactivación",            color: "bg-emerald-100 text-emerald-700" },
-  duplicate_blocked: { label: "Alta bloqueada (duplicado)", color: "bg-amber-100 text-amber-700" },
-};
-
-const CAMPO_HISTORIAL: Record<string, string> = {
-  empresa: "Nombre de empresa",
-  razon_social: "Razón social (factura)",
-  ruc_factura: "RUC (factura)",
-  nombre: "Nombre",
-  nombre_contacto: "Contacto",
-  ruc: "RUC",
-  documento: "Documento",
-  tipo_cliente: "Tipo de cliente",
-  estado: "Estado",
-  condicion_pago: "Condición de pago",
-  moneda_preferida: "Moneda",
-  vendedor_usuario_id: "Vendedor",
-  project_manager_id: "Project Manager",
-};
-
-function resumenCambiosHistorial(detalle: Record<string, unknown> | null | undefined): {
-  campo: string;
-  antes: string;
-  despues: string;
-}[] {
-  if (!detalle) return [];
-  const changed = Array.isArray(detalle.changed_fields) ? (detalle.changed_fields as string[]) : [];
-  const before = (detalle.before ?? {}) as Record<string, unknown>;
-  const after = (detalle.after ?? {}) as Record<string, unknown>;
-  return changed.map((k) => ({
-    campo: CAMPO_HISTORIAL[k] ?? k,
-    antes: before[k] == null || before[k] === "" ? "—" : String(before[k]),
-    despues: after[k] == null || after[k] === "" ? "—" : String(after[k]),
-  }));
-}
-
-// ── Placeholder para pestañas futuras ─────────────────────────────────────────
-
 function PlaceholderTab({ icon, title, desc }: { icon: string; title: string; desc: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -955,6 +916,27 @@ export default function ClienteDetalleClient({
     setDeletionReason("");
     setEliminarPreview(null);
     closeOrBack();
+  }
+
+  // Edición y borrado de notas.
+  const [editandoNota, setEditandoNota] = useState<{ id: number; texto: string } | null>(null);
+  const [borrandoNota, setBorrandoNota] = useState<number | null>(null);
+
+  async function guardarEdicionNota() {
+    if (!editandoNota || !editandoNota.texto.trim()) return;
+    setGuardandoNota(true);
+    await editarNotaCliente(id, editandoNota.id, editandoNota.texto);
+    setEditandoNota(null);
+    await cargar();
+    setGuardandoNota(false);
+  }
+
+  async function confirmarBorrarNota(notaId: number) {
+    setGuardandoNota(true);
+    await borrarNotaCliente(id, notaId);
+    setBorrandoNota(null);
+    await cargar();
+    setGuardandoNota(false);
   }
 
   async function handleAgregarNota(e: React.FormEvent) {
@@ -2149,7 +2131,7 @@ export default function ClienteDetalleClient({
                       setErrorFacturaContado(null);
                       setModalFacturaContado(true);
                     }}
-                    className="text-sm font-medium border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 px-3 py-1.5 rounded-lg"
+                    className="inline-flex h-9 items-center rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
                   >
                     Emitir factura al contado
                   </button>
@@ -2168,7 +2150,7 @@ export default function ClienteDetalleClient({
                       });
                       setModalPago(true);
                     }}
-                    className="text-sm font-medium text-[#4FAEB2] hover:text-[#3F8E91]"
+                    className="inline-flex h-9 items-center rounded-xl bg-[#4FAEB2] px-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#3F8E91]"
                   >
                     Registrar pago
                   </button>
@@ -2219,14 +2201,14 @@ export default function ClienteDetalleClient({
                                 <button
                                   type="button"
                                   onClick={() => { setFacturaPago(f); setFormPago({ factura_id: f.id, monto: String(f.saldo), fecha_pago: new Date().toISOString().slice(0, 10), metodo_pago: "efectivo", referencia: "" }); setModalPago(true); }}
-                                  className="text-xs font-medium text-[#4FAEB2] hover:underline"
+                                  className="inline-flex h-7 items-center justify-center rounded-lg border border-[#4FAEB2]/50 bg-white px-2.5 text-[11px] font-semibold text-[#2F7A7D] transition-colors hover:bg-[#4FAEB2]/10"
                                 >
                                   Registrar pago
                                 </button>
                               )}
                               <Link
                                 href={`/facturas/${f.id}`}
-                                className="text-xs font-medium text-slate-500 hover:text-[#4FAEB2] hover:underline"
+                                className="inline-flex h-7 items-center justify-center rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-50"
                               >
                                 Ver
                               </Link>
@@ -2469,6 +2451,9 @@ export default function ClienteDetalleClient({
                             <span className="font-medium text-slate-600">Motivo:</span> {motivo}
                           </p>
                         )}
+                        {h.accion === "duplicate_blocked" && (
+                          <p className="mt-2 text-xs text-slate-600">{textoDuplicado(h.detalle)}</p>
+                        )}
                       </li>
                     );
                   })}
@@ -2479,9 +2464,9 @@ export default function ClienteDetalleClient({
 
           {/* ── NOTAS ───────────────────────────────────────────────────── */}
           {activeTab === "notas" && (
-            <div className="max-w-2xl space-y-6">
-              <form onSubmit={handleAgregarNota}>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Nueva nota</label>
+            <div className="max-w-3xl space-y-5">
+              <form onSubmit={handleAgregarNota} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Nueva nota</label>
                 <textarea
                   ref={notaRef}
                   value={nuevaNota}
@@ -2494,28 +2479,125 @@ export default function ClienteDetalleClient({
                   }}
                   rows={3}
                   placeholder="Escribí una nota interna (Ctrl+Enter para guardar)..."
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-[#4FAEB2] focus:outline-none bg-white text-sm resize-none mb-3"
+                  className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-sm outline-none transition focus:border-[#4FAEB2] focus:bg-white focus:ring-2 focus:ring-[#4FAEB2]/30"
                 />
-<button
-                type="submit"
-                disabled={!nuevaNota.trim() || guardandoNota}
-                className="bg-[#4FAEB2] hover:bg-[#3F8E91] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
-              >
-                  Agregar nota
-                </button>
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={!nuevaNota.trim() || guardandoNota}
+                    className="rounded-xl bg-[#4FAEB2] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#3F8E91] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Agregar nota
+                  </button>
+                </div>
               </form>
 
               {cliente.notas.length === 0 ? (
-                <p className="text-sm text-gray-400 italic">No hay notas registradas aún.</p>
-              ) : (
-                <div className="space-y-3">
-                  {[...cliente.notas].reverse().map((nota: NotaCliente) => (
-                    <div key={nota.id} className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
-                      <p className="text-sm text-gray-700 whitespace-pre-wrap">{nota.texto}</p>
-                      <p className="text-xs text-gray-400 mt-2">{formatFechaHora(nota.fecha)}</p>
-                    </div>
-                  ))}
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-10 text-center">
+                  <p className="text-sm font-medium text-slate-500">Todavía no hay notas</p>
+                  <p className="mt-1 text-xs text-slate-400">Las notas son internas: el cliente no las ve.</p>
                 </div>
+              ) : (
+                <ul className="space-y-3">
+                  {[...cliente.notas].reverse().map((nota: NotaCliente) => {
+                    const editando = editandoNota?.id === nota.id;
+                    return (
+                      <li
+                        key={nota.id}
+                        className="group rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md"
+                      >
+                        <div className="flex items-start gap-3 px-5 py-4">
+                          <span aria-hidden="true" className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#4FAEB2]/12 text-sm">
+                            📝
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            {editando ? (
+                              <textarea
+                                autoFocus
+                                value={editandoNota.texto}
+                                onChange={(e) => setEditandoNota({ id: nota.id, texto: e.target.value })}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Escape") setEditandoNota(null);
+                                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                                    e.preventDefault();
+                                    void guardarEdicionNota();
+                                  }
+                                }}
+                                rows={3}
+                                className="w-full resize-none rounded-xl border border-[#4FAEB2] bg-white px-3 py-2 text-sm outline-none ring-2 ring-[#4FAEB2]/25"
+                              />
+                            ) : (
+                              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">{nota.texto}</p>
+                            )}
+                            <p className="mt-2 text-[11px] text-slate-400">
+                              {formatFechaHora(nota.fecha)}
+                              {nota.editada ? ` · editada ${formatFechaHora(nota.editada)}` : ""}
+                            </p>
+                          </div>
+                          {!editando && borrandoNota !== nota.id ? (
+                            <div className="flex shrink-0 gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setEditandoNota({ id: nota.id, texto: nota.texto })}
+                                className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:border-[#4FAEB2] hover:text-[#2F7A7D]"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setBorrandoNota(nota.id)}
+                                className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                              >
+                                Borrar
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                        {editando ? (
+                          <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-2.5">
+                            <button
+                              type="button"
+                              onClick={() => setEditandoNota(null)}
+                              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              disabled={guardandoNota || !editandoNota.texto.trim()}
+                              onClick={() => void guardarEdicionNota()}
+                              className="rounded-lg bg-[#4FAEB2] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#3F8E91] disabled:opacity-50"
+                            >
+                              {guardandoNota ? "Guardando…" : "Guardar"}
+                            </button>
+                          </div>
+                        ) : null}
+                        {borrandoNota === nota.id ? (
+                          <div className="flex items-center justify-between gap-2 border-t border-rose-100 bg-rose-50/60 px-5 py-2.5">
+                            <p className="text-xs text-rose-700">¿Borrar esta nota? No se puede deshacer.</p>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setBorrandoNota(null)}
+                                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                              >
+                                Cancelar
+                              </button>
+                              <button
+                                type="button"
+                                disabled={guardandoNota}
+                                onClick={() => void confirmarBorrarNota(nota.id)}
+                                className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+                              >
+                                Borrar
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
             </div>
           )}

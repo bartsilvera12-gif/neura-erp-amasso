@@ -65,7 +65,7 @@ export function AnularFacturaButton({
 
   const triggerCls =
     variant === "compact"
-      ? "inline-flex items-center justify-center rounded-lg border border-red-200 bg-white px-2 py-1 text-[11px] font-semibold text-red-600 transition-colors hover:border-red-300 hover:bg-red-50"
+      ? "inline-flex h-7 items-center justify-center rounded-lg border border-red-200 bg-white px-2.5 text-[11px] font-semibold text-red-600 transition-colors hover:border-red-300 hover:bg-red-50"
       : "inline-flex items-center justify-center rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-600 transition-colors hover:border-red-400 hover:bg-red-50";
 
   return (
