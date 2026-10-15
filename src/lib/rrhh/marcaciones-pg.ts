@@ -242,7 +242,13 @@ async function identificarEn(
   empresaId: string,
   cred: Credenciales,
   claveSesion: string,
-  cfg: ConfigRrhh
+  cfg: ConfigRrhh,
+  /**
+   * Dónde se anotan los intentos. Al marcar, la identificación corre dentro de
+   * una transacción que se deshace si falla: anotado ahí, el intento fallido se
+   * perdía con el ROLLBACK y el límite de intentos no se aplicaba nunca.
+   */
+  cIntentos: Q = c
 ): Promise<{ empleado: EmpleadoIdentificado } | { requierePin: true }> {
   const { E, I } = t(schemaRaw);
   const fallos = await c.query<{ n: string }>(
@@ -269,7 +275,7 @@ async function identificarEn(
   );
   const emp = r.rows[0];
   if (!emp) {
-    await registrarIntento(c, schemaRaw, empresaId, claveSesion, false);
+    await registrarIntento(cIntentos, schemaRaw, empresaId, claveSesion, false);
     throw new AsistenciaError("No encontramos un empleado activo con esa cédula y ese código.", 404);
   }
   const modoPin = cfg.autenticacion.pin;
@@ -280,11 +286,11 @@ async function identificarEn(
     const pin = String(cred.pin ?? "").trim();
     if (!pin) return { requierePin: true };
     if (!verificarPin(pin, emp.pin_hash)) {
-      await registrarIntento(c, schemaRaw, empresaId, claveSesion, false);
+      await registrarIntento(cIntentos, schemaRaw, empresaId, claveSesion, false);
       throw new AsistenciaError("El PIN no es correcto.", 401);
     }
   }
-  await registrarIntento(c, schemaRaw, empresaId, claveSesion, true);
+  await registrarIntento(cIntentos, schemaRaw, empresaId, claveSesion, true);
   return {
     empleado: { id: emp.id, nombre: emp.nombre, horario_entrada: emp.horario_entrada, horario_salida: emp.horario_salida },
   };
@@ -351,7 +357,7 @@ export async function marcar(
   const c = client as unknown as Q;
   try {
     await client.query("BEGIN");
-    const id = await identificarEn(c, schemaRaw, empresaId, cred, sesion.clave, cfg);
+    const id = await identificarEn(c, schemaRaw, empresaId, cred, sesion.clave, cfg, pool() as unknown as Q);
     if ("requierePin" in id) throw new AsistenciaError("Ingresá tu PIN.", 401);
     // Bloqueo del empleado: dos marcaciones a la vez se hacen una después de otra.
     await c.query(`SELECT id FROM ${E} WHERE id = $1::uuid AND empresa_id = $2::uuid FOR UPDATE`, [id.empleado.id, empresaId]);

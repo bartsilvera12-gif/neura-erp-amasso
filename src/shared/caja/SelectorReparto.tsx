@@ -27,7 +27,49 @@ function fechaCorta(ymd: string): string {
 export default function SelectorReparto({ caja }: { caja: CajaVenta }) {
   if (caja.repartosAbiertos.length === 0) return null;
 
-  const unico = caja.repartosAbiertos.length === 1;
+  // Con un solo camión en la calle, para el repartidor es "su" camión y se
+  // muestra como dato. El mostrador (admin, cajero) vende del salón: el camión
+  // se ofrece como opción y por defecto no se elige ninguno.
+  const unico = caja.repartosAbiertos.length === 1 && caja.vendeDeSuCamion;
+  if (!caja.vendeDeSuCamion) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-3">
+        <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
+          <Truck className="h-3.5 w-3.5" />
+          De dónde sale la mercadería
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => caja.setRepartoId(null)}
+            className={`rounded-lg border-2 px-3 py-2 text-xs font-medium transition-colors ${
+              caja.repartoId === null ? "border-[#4FAEB2] bg-[#4FAEB2]/10 text-slate-900" : "border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            Mostrador
+            <span className="block text-[11px] font-normal text-slate-500">stock del punto de venta</span>
+          </button>
+          {caja.repartosAbiertos.map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => caja.setRepartoId(r.id)}
+              className={`rounded-lg border-2 px-3 py-2 text-xs font-medium transition-colors ${
+                caja.repartoId === r.id ? "border-[#4FAEB2] bg-[#4FAEB2]/10 text-slate-900" : "border-slate-200 text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {etiquetaCamion(r.camion)}
+              <span className="block text-[11px] font-normal text-slate-500">
+                {r.repartidor ? `${r.repartidor} · ` : ""}
+                {fechaCorta(r.fecha)}
+                {r.fecha.slice(0, 10) !== hoyPy() ? " · sin cerrar" : ""}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3">

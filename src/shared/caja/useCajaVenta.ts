@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { mutate as mutateGlobal } from "swr";
 import { precioSegunLista, type ListaPrecio } from "@/lib/ventas/listas-precio";
 import { useRepartos } from "@/shared/hooks/useRepartos";
 import { useUsuarioActual } from "@/shared/hooks/useUsuarioActual";
@@ -534,6 +535,9 @@ export function useCajaVenta() {
     });
     limpiarVenta();
     setVentaCreada(res.venta);
+    // El catálogo muestra el stock: sin esto seguía mostrando el de antes de la
+    // venta hasta recargar la página, y el tope de cantidad quedaba corrido.
+    void mutateGlobal((k) => typeof k === "string" && k.startsWith("caja:catalogo"));
     setPaso("listo");
   }, [
     carrito,
@@ -591,6 +595,8 @@ export function useCajaVenta() {
     repartosAbiertos,
     repartosDisponibles,
     repartoId,
+    /** El que vende es un repartidor: vende de su camión. Si no, vende del salón salvo que elija un camión. */
+    vendeDeSuCamion,
     faltaElegirReparto,
     // reglas
     puedeAvanzar,
