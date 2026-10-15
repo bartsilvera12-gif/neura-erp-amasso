@@ -44,8 +44,14 @@ export const ETIQUETA_EVENTO: Record<TipoEvento, string> = {
 
 export type EstadoJornada = "sin_entrada" | "trabajando" | "en_break" | "en_almuerzo" | "cerrada";
 
-/** Intentos fallidos de identificación permitidos por sesión, en la ventana. */
-const MAX_INTENTOS = 5;
+/**
+ * Límite de intentos fallidos (especificación, punto 5). Dos topes:
+ *  - Por cédula: 5 fallos bloquean solo esa cédula. Así quien se equivoca con
+ *    su código no deja a todos los demás sin poder marcar en esa PC.
+ *  - Por sesión (la PC): 20 fallos, para cortar a quien prueba cédulas al azar.
+ */
+const MAX_INTENTOS_CEDULA = 5;
+const MAX_INTENTOS_SESION = 20;
 const VENTANA_INTENTOS_MIN = 10;
 
 type Q = { query: <R = Record<string, unknown>>(sql: string, p?: unknown[]) => Promise<{ rows: R[] }> };
@@ -251,18 +257,33 @@ async function identificarEn(
   cIntentos: Q = c
 ): Promise<{ empleado: EmpleadoIdentificado } | { requierePin: true }> {
   const { E, I } = t(schemaRaw);
-  const fallos = await c.query<{ n: string }>(
-    `SELECT count(*)::text AS n FROM ${I}
-      WHERE empresa_id = $1::uuid AND clave = $2 AND NOT exitoso
-        AND created_at > now() - interval '${VENTANA_INTENTOS_MIN} minutes'`,
-    [empresaId, claveSesion]
-  );
-  if (Number(fallos.rows[0]?.n ?? 0) >= MAX_INTENTOS) {
-    throw new AsistenciaError(`Demasiados intentos fallidos. Esperá ${VENTANA_INTENTOS_MIN} minutos y probá de nuevo.`, 429);
-  }
   const cedula = normalizarDoc(cred.cedula);
   const codigo = String(cred.codigo ?? "").trim().toUpperCase();
   if (!cedula || !codigo) throw new AsistenciaError("Ingresá tu cédula y tu código de empleado.");
+  const claveCedula = `ced:${cedula}`;
+  const fallosDe = async (clave: string) => {
+    const r = await c.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM ${I}
+        WHERE empresa_id = $1::uuid AND clave = $2 AND NOT exitoso
+          AND created_at > now() - interval '${VENTANA_INTENTOS_MIN} minutes'`,
+      [empresaId, clave]
+    );
+    return Number(r.rows[0]?.n ?? 0);
+  };
+  if ((await fallosDe(claveCedula)) >= MAX_INTENTOS_CEDULA) {
+    throw new AsistenciaError(
+      `Esa cédula tuvo demasiados intentos fallidos. Esperá ${VENTANA_INTENTOS_MIN} minutos o pedile ayuda a administración.`,
+      429
+    );
+  }
+  if ((await fallosDe(claveSesion)) >= MAX_INTENTOS_SESION) {
+    throw new AsistenciaError(`Demasiados intentos fallidos en esta computadora. Esperá ${VENTANA_INTENTOS_MIN} minutos.`, 429);
+  }
+  // Un fallo cuenta para la cédula y para la PC.
+  const fallo = async () => {
+    await registrarIntento(cIntentos, schemaRaw, empresaId, claveCedula, false);
+    await registrarIntento(cIntentos, schemaRaw, empresaId, claveSesion, false);
+  };
 
   const r = await c.query<{ id: string; nombre: string; pin_hash: string | null; horario_entrada: string | null; horario_salida: string | null }>(
     `SELECT id, nombre, pin_hash, to_char(horario_entrada, 'HH24:MI') AS horario_entrada,
@@ -275,7 +296,7 @@ async function identificarEn(
   );
   const emp = r.rows[0];
   if (!emp) {
-    await registrarIntento(cIntentos, schemaRaw, empresaId, claveSesion, false);
+    await fallo();
     throw new AsistenciaError("No encontramos un empleado activo con esa cédula y ese código.", 404);
   }
   const modoPin = cfg.autenticacion.pin;
@@ -286,7 +307,7 @@ async function identificarEn(
     const pin = String(cred.pin ?? "").trim();
     if (!pin) return { requierePin: true };
     if (!verificarPin(pin, emp.pin_hash)) {
-      await registrarIntento(cIntentos, schemaRaw, empresaId, claveSesion, false);
+      await fallo();
       throw new AsistenciaError("El PIN no es correcto.", 401);
     }
   }
