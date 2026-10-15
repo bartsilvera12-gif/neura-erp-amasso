@@ -69,6 +69,8 @@ export default function OrdenesClient() {
   const [cuentas, setCuentas] = useState<CuentaContableOpcion[]>([]);
 
   const [modalAbierto, setModalAbierto] = useState(false);
+  /** Orden que se está editando (abre el mismo formulario con sus datos). */
+  const [editando, setEditando] = useState<{ orden: Orden; items: OrdenItem[] } | null>(null);
   const [detalle, setDetalle] = useState<{ orden: Orden; items: OrdenItem[]; tiene_recepciones: boolean } | null>(null);
 
   const cargar = useCallback(async () => {
@@ -195,27 +197,49 @@ export default function OrdenesClient() {
           onProveedorCreado={(p) => setProveedores((prev) => [...prev, p].sort((a, b) => a.label.localeCompare(b.label)))}
           onClose={() => setModalAbierto(false)} onSaved={() => { setModalAbierto(false); cargar(); }} />
       )}
+      {editando && (
+        <ModalOrden proveedores={proveedores} productos={productos} cuentas={cuentas} editando={editando}
+          onProveedorCreado={(p) => setProveedores((prev) => [...prev, p].sort((a, b) => a.label.localeCompare(b.label)))}
+          onClose={() => setEditando(null)}
+          onSaved={() => { const id = editando.orden.id; setEditando(null); cargar(); abrirDetalle(id); }} />
+      )}
       {detalle && (
         <ModalDetalle data={detalle} onClose={() => setDetalle(null)}
-          onChanged={() => { cargar(); abrirDetalle(detalle.orden.id); }} />
+          onChanged={() => { cargar(); abrirDetalle(detalle.orden.id); }}
+          onEditar={() => { setEditando({ orden: detalle.orden, items: detalle.items }); setDetalle(null); }}
+          onEliminada={() => { setDetalle(null); cargar(); }} />
       )}
     </div>
   );
 }
 
 /* ── modal: nueva orden ────────────────────────────────────────────────── */
-function ModalOrden({ proveedores, productos, cuentas, onClose, onSaved, onProveedorCreado }: {
+function ModalOrden({ proveedores, productos, cuentas, onClose, onSaved, onProveedorCreado, editando = null }: {
   proveedores: ComboOption[]; productos: ComboOption[]; cuentas: CuentaContableOpcion[];
   onProveedorCreado: (p: ComboOption) => void;
   onClose: () => void; onSaved: () => void;
+  /** Con esto el formulario edita esa orden (PUT) en vez de crear una nueva. */
+  editando?: { orden: Orden; items: OrdenItem[] } | null;
 }) {
-  const [proveedorId, setProveedorId] = useState<string | null>(null);
+  const [proveedorId, setProveedorId] = useState<string | null>(editando?.orden.proveedor_id ?? null);
   /** `null` = cerrado; string = abierto con ese nombre precargado. */
   const [nuevoProv, setNuevoProv] = useState<string | null>(null);
-  const [fecha, setFecha] = useState(hoy());
-  const [fechaEstimada, setFechaEstimada] = useState("");
-  const [observaciones, setObservaciones] = useState("");
-  const [lineas, setLineas] = useState<FormLinea[]>([lineaVacia()]);
+  const [fecha, setFecha] = useState(editando ? String(editando.orden.fecha).slice(0, 10) : hoy());
+  const [fechaEstimada, setFechaEstimada] = useState(editando?.orden.fecha_estimada ? String(editando.orden.fecha_estimada).slice(0, 10) : "");
+  const [observaciones, setObservaciones] = useState(editando?.orden.observaciones ?? "");
+  const [lineas, setLineas] = useState<FormLinea[]>(() =>
+    editando && editando.items.length
+      ? editando.items.map((it) => ({
+          producto_id: it.producto_id,
+          producto_nombre: it.producto_nombre ?? "",
+          descripcion: it.descripcion ?? "",
+          cantidad: String(n(it.cantidad)),
+          costo_unitario_estimado: String(n(it.costo_unitario_estimado)),
+          iva_tipo: (["exenta", "5", "10"].includes(it.iva_tipo) ? it.iva_tipo : "10") as IvaTipo,
+          cuenta_contable_id: it.cuenta_contable_id,
+        }))
+      : [lineaVacia()]
+  );
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [idem] = useState(uuid);
@@ -230,8 +254,8 @@ function ModalOrden({ proveedores, productos, cuentas, onClose, onSaved, onProve
     if (lineas.some((l) => n(l.cantidad) <= 0)) { setError("Todas las líneas necesitan una cantidad mayor a 0."); return; }
     setGuardando(true);
     try {
-      const r = await apiFetch("/api/ordenes", {
-        method: "POST",
+      const r = await apiFetch(editando ? `/api/ordenes/${editando.orden.id}` : "/api/ordenes", {
+        method: editando ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           proveedor_id: proveedorId,
@@ -257,7 +281,7 @@ function ModalOrden({ proveedores, productos, cuentas, onClose, onSaved, onProve
   }
 
   return (
-    <Overlay onClose={onClose} titulo="Nueva orden de compra">
+    <Overlay onClose={onClose} titulo={editando ? `Editar orden ${editando.orden.numero}` : "Nueva orden de compra"}>
       {error && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
       {/* Los tres campos con la misma estructura (rótulo en bloque + control con
           mt-1) para que queden a la misma altura. Antes las fechas iban dentro de
@@ -335,7 +359,7 @@ function ModalOrden({ proveedores, productos, cuentas, onClose, onSaved, onProve
           <button onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancelar</button>
           <button onClick={guardar} disabled={guardando}
             className="rounded-xl bg-[#4FAEB2] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#3F8E91] disabled:opacity-60">
-            {guardando ? "Guardando…" : "Crear orden"}
+            {guardando ? "Guardando…" : editando ? "Guardar cambios" : "Crear orden"}
           </button>
         </div>
       </div>
@@ -344,9 +368,10 @@ function ModalOrden({ proveedores, productos, cuentas, onClose, onSaved, onProve
 }
 
 /* ── modal: detalle + acciones + recepción ─────────────────────────────── */
-function ModalDetalle({ data, onClose, onChanged }: {
+function ModalDetalle({ data, onClose, onChanged, onEditar, onEliminada }: {
   data: { orden: Orden; items: OrdenItem[]; tiene_recepciones: boolean };
   onClose: () => void; onChanged: () => void;
+  onEditar: () => void; onEliminada: () => void;
 }) {
   const { orden, items } = data;
   const [error, setError] = useState<string | null>(null);
@@ -445,6 +470,26 @@ function ModalDetalle({ data, onClose, onChanged }: {
                     className="rounded-xl border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-60">Cancelar orden</button>
                 )}
               </>
+            )}
+            {/* Editar: mientras no tenga recepciones (después ya movió stock). */}
+            {!data.tiene_recepciones && !["cerrada", "cancelada"].includes(orden.estado) && (
+              <button onClick={onEditar}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Editar</button>
+            )}
+            {!data.tiene_recepciones && ["borrador", "cancelada"].includes(orden.estado) && (
+              <button
+                disabled={busy}
+                onClick={async () => {
+                  if (!window.confirm(`¿Borrar la orden ${orden.numero}? No se puede deshacer.`)) return;
+                  setBusy(true); setError(null);
+                  try {
+                    const r = await apiFetch(`/api/ordenes/${orden.id}`, { method: "DELETE" });
+                    const j = await r.json().catch(() => ({}));
+                    if (!r.ok || !j?.success) { setError(j?.error ?? `Error ${r.status}`); return; }
+                    onEliminada();
+                  } finally { setBusy(false); }
+                }}
+                className="rounded-xl border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-60">Eliminar</button>
             )}
             <Link href="/compras/recepciones"
               className="ml-auto self-center text-sm font-semibold text-[#3F8E91] hover:underline">Ver recepciones →</Link>

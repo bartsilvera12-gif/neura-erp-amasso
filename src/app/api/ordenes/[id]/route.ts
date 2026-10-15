@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
+import { getTenantSupabaseFromAuth, getTenantSupabaseFromAuthWithRol } from "@/lib/supabase/tenant-api";
+import { esRolAdminEmpresa } from "@/lib/modulos/resolve-effective-modules";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import { conMotivo } from "@/lib/api/motivo-error";
-import { getOrden, updateOrden, OrdenError } from "@/lib/ordenes/server/ordenes-pg";
+import { eliminarOrden, getOrden, updateOrden, OrdenError } from "@/lib/ordenes/server/ordenes-pg";
 import { parseOrdenItems, UUID_RE, str } from "@/lib/ordenes/parse-items";
 
 export const runtime = "nodejs";
@@ -52,5 +53,24 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     if (e instanceof OrdenError) return NextResponse.json(errorResponse(e.message), { status: e.status });
     console.error("[/api/ordenes/[id] PUT]", e instanceof Error ? e.message : e);
     return NextResponse.json(errorResponse(conMotivo("No se pudo actualizar la orden.", e)), { status: 500 });
+  }
+}
+
+/** DELETE /api/ordenes/[id] — borra una orden en borrador o cancelada, sin recepciones ni compras. Solo admin. */
+export async function DELETE(request: NextRequest, context: RouteContext) {
+  const ctx = await getTenantSupabaseFromAuthWithRol(request);
+  if (!ctx) return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
+  if (!esRolAdminEmpresa(ctx.auth.rol)) {
+    return NextResponse.json(errorResponse("Solo un administrador puede borrar órdenes de compra."), { status: 403 });
+  }
+  try {
+    const { id } = await context.params;
+    const schema = await fetchDataSchemaForEmpresaId(ctx.auth.empresa_id);
+    await eliminarOrden(schema, ctx.auth.empresa_id, id);
+    return NextResponse.json(successResponse({ eliminada: true }));
+  } catch (e) {
+    if (e instanceof OrdenError) return NextResponse.json(errorResponse(e.message), { status: e.status });
+    console.error("[/api/ordenes/[id] DELETE]", e instanceof Error ? e.message : e);
+    return NextResponse.json(errorResponse("No se pudo borrar la orden."), { status: 500 });
   }
 }

@@ -410,3 +410,37 @@ export async function recalcularEstadoOrdenEnTx(
     [ordenId, empresaId, nuevo]
   );
 }
+
+/**
+ * Borra una orden. Solo en borrador o cancelada, sin recepciones ni compras
+ * vinculadas: una orden con recepciones movió stock y queda como historial.
+ */
+export async function eliminarOrden(schemaRaw: string, empresaId: string, id: string): Promise<void> {
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  const tO = quoteSchemaTable(schema, "ordenes_compra");
+  const tR = quoteSchemaTable(schema, "recepciones");
+  const tC = quoteSchemaTable(schema, "compras");
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query<{ estado: string; numero: string }>(
+      `SELECT estado, numero FROM ${tO} WHERE id = $1::uuid AND empresa_id = $2::uuid FOR UPDATE`,
+      [id, empresaId]
+    );
+    if (!rows[0]) throw new OrdenError("Orden no encontrada.", 404);
+    if (rows[0].estado !== "borrador" && rows[0].estado !== "cancelada") {
+      throw new OrdenError("Solo se borra una orden en borrador o cancelada. Si no la vas a usar, cancelala primero.", 409);
+    }
+    const rec = await client.query(`SELECT 1 FROM ${tR} WHERE orden_id = $1::uuid LIMIT 1`, [id]);
+    if (rec.rows.length) throw new OrdenError("Tiene recepciones registradas: no se puede borrar.", 409);
+    const com = await client.query(`SELECT 1 FROM ${tC} WHERE orden_compra_id = $1::uuid LIMIT 1`, [id]);
+    if (com.rows.length) throw new OrdenError("Tiene compras vinculadas: no se puede borrar.", 409);
+    await client.query(`DELETE FROM ${tO} WHERE id = $1::uuid AND empresa_id = $2::uuid`, [id, empresaId]);
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => null);
+    throw e;
+  } finally {
+    client.release();
+  }
+}
