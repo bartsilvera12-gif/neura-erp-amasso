@@ -325,7 +325,22 @@ function DetalleConteo({ id, puedeCerrar, onVolver }: { id: string; puedeCerrar:
                       el sistema tenía 11, y esperaba "-1"). La cuenta es contado − sistema:
                       si contaste más, sobran y el ajuste suma; si contaste menos, faltan. */}
                   <td className={`px-3 py-2 text-right tabular-nums font-semibold whitespace-nowrap ${!d ? "text-slate-300" : d < 0 ? "text-rose-600" : "text-amber-700"}`}>
-                    {d == null ? "—" : d === 0 ? "Coincide" : d < 0 ? `Faltan ${formatCantidad(-d, i.unidad_medida)}` : `Sobran ${formatCantidad(d, i.unidad_medida)}`}
+                    {d == null ? (
+                      "—"
+                    ) : d === 0 ? (
+                      "Coincide"
+                    ) : (
+                      // Dicho desde lo que se contó y con el resultado: "Faltan 1" se
+                      // leía al revés (¿falta en el depósito o en el sistema?).
+                      <>
+                        {d < 0
+                          ? `Contaste ${formatCantidad(-d, i.unidad_medida)} menos`
+                          : `Contaste ${formatCantidad(d, i.unidad_medida)} más`}
+                        <span className="block text-[11px] font-normal text-slate-500">
+                          el stock {d < 0 ? "baja" : "sube"} a {formatCantidad(i.cantidad_sistema + d, i.unidad_medida)}
+                        </span>
+                      </>
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     <input

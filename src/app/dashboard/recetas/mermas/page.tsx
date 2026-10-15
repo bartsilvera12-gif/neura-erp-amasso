@@ -50,6 +50,22 @@ export default function MermasPage() {
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  /** Stock de cada producto en cada depósito: ubicacion_id → producto_id → cantidad. */
+  const [stockDep, setStockDep] = useState<Record<string, Record<string, number>>>({});
+
+  const cargarStock = useCallback(async (deps: Ubicacion[]) => {
+    const pares = await Promise.all(
+      deps.map(async (d) => {
+        try {
+          const r = await pedir<{ stock: { producto_id: string; stock_actual: number }[] }>(`/api/inventario/ubicaciones/${d.id}/stock`);
+          return [d.id, Object.fromEntries(r.stock.map((x) => [x.producto_id, Number(x.stock_actual)]))] as const;
+        } catch {
+          return [d.id, {}] as const;
+        }
+      })
+    );
+    setStockDep(Object.fromEntries(pares));
+  }, []);
 
   const cargar = useCallback(async () => {
     try {
@@ -66,15 +82,27 @@ export default function MermasPage() {
       .then((d) => {
         const deps = d.ubicaciones.filter((u) => u.tipo !== "camion");
         setDepositos(deps);
+        void cargarStock(deps);
         // Las devoluciones vuelven al punto de venta; por defecto se sugiere ese.
         const pdv = deps.find((u) => u.tipo === "salon") ?? deps[0];
         if (pdv) setF((x) => ({ ...x, ubicacion_id: x.ubicacion_id || pdv.id }));
       })
       .catch(() => null);
-  }, [cargar]);
+  }, [cargar, cargarStock]);
 
   const intermedios = productos.filter((p) => p.clase_producto === "intermedio");
   const prod = productos.find((p) => p.id === f.producto_id);
+  const hayEn = (ubicacionId: string) => (f.producto_id ? stockDep[ubicacionId]?.[f.producto_id] ?? 0 : null);
+  const disponible = f.ubicacion_id ? hayEn(f.ubicacion_id) : null;
+
+  /** Al elegir el producto, si en el depósito elegido no hay, se pasa al que tiene stock. */
+  function elegirProducto(id: string) {
+    setF((x) => {
+      const enActual = id ? stockDep[x.ubicacion_id]?.[id] ?? 0 : 0;
+      const conStock = depositos.find((d) => (stockDep[d.id]?.[id] ?? 0) > 0);
+      return { ...x, producto_id: id, ubicacion_id: enActual > 0 || !conStock ? x.ubicacion_id : conStock.id };
+    });
+  }
 
   async function guardar() {
     setOcupado(true);
@@ -91,6 +119,7 @@ export default function MermasPage() {
         }),
       });
       setAviso("Registrado.");
+      void cargarStock(depositos);
       setF((x) => ({ ...VACIO, ubicacion_id: x.ubicacion_id }));
       void cargar();
     } catch (e) {
@@ -117,7 +146,7 @@ export default function MermasPage() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="lg:col-span-2">
             <label className={LABEL} htmlFor="m-prod">Producto</label>
-            <select id="m-prod" className={INPUT} value={f.producto_id} onChange={(e) => setF((x) => ({ ...x, producto_id: e.target.value }))}>
+            <select id="m-prod" className={INPUT} value={f.producto_id} onChange={(e) => elegirProducto(e.target.value)}>
               <option value="">Elegir…</option>
               {productos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
             </select>
@@ -125,11 +154,25 @@ export default function MermasPage() {
           <div>
             <label className={LABEL} htmlFor="m-cant">Cantidad {prod ? `(${prod.unidad_medida})` : ""}</label>
             <input id="m-cant" inputMode="decimal" className={INPUT} value={f.cantidad} onChange={(e) => setF((x) => ({ ...x, cantidad: e.target.value.replace(/[^0-9.,]/g, "") }))} />
+            {disponible != null ? (
+              <p className={`mt-1 text-xs ${disponible > 0 ? "text-slate-500" : "text-rose-600"}`}>
+                En este depósito hay {formatCantidad(disponible, prod?.unidad_medida ?? "")}
+              </p>
+            ) : null}
           </div>
           <div>
             <label className={LABEL} htmlFor="m-dep">Depósito</label>
             <select id="m-dep" className={INPUT} value={f.ubicacion_id} onChange={(e) => setF((x) => ({ ...x, ubicacion_id: e.target.value }))}>
-              {depositos.map((d) => <option key={d.id} value={d.id}>{d.nombre}{d.tipo === "salon" ? " (Punto de venta)" : ""}</option>)}
+              {depositos.map((d) => {
+                const h = hayEn(d.id);
+                return (
+                  <option key={d.id} value={d.id}>
+                    {d.nombre}
+                    {d.tipo === "salon" ? " (Punto de venta)" : ""}
+                    {h != null ? ` — hay ${formatCantidad(h, prod?.unidad_medida ?? "")}` : ""}
+                  </option>
+                );
+              })}
             </select>
           </div>
           <div>
