@@ -8,6 +8,7 @@ import { API_ERRORS } from "@/lib/api/errors";
 import { esRolAdminEmpresa } from "@/lib/modulos/resolve-effective-modules";
 import { usuarioDelSchema } from "@/lib/repartos/server/repartos-pg";
 import { getAsientoConDetalles, generarAsientoEnTx } from "@/lib/contabilidad/asientos-pg";
+import { recalcularFacturacionRecepcionEnTx } from "@/lib/recepciones/server/recepciones-pg";
 
 /**
  * POST /api/compras/[id]/anular — anula una compra y revierte lo que movió.
@@ -145,6 +146,26 @@ export async function POST(request: NextRequest, { params }: RouteCtx) {
       const hayMovs = await tablaExiste(client, schema, "movimientos_inventario");
       const movTieneUbicacion =
         hayMovs && (await tieneColumna(client, schema, "movimientos_inventario", "ubicacion_id"));
+
+      // Líneas facturadas contra una recepción: la recepción vuelve a quedar
+      // pendiente de facturar por esa cantidad. Sin esto quedaba "facturada"
+      // para siempre y no se podía volver a facturar al corregir la compra.
+      const recepcionesTocadas = new Set<string>();
+      if (await tablaExiste(client, schema, "recepcion_items")) {
+        const tRI = quoteSchemaTable(schema, "recepcion_items");
+        for (const it of itemsQ.rows) {
+          if (!it.recepcion_item_id || !(Number(it.cantidad) > 0)) continue;
+          const r = await client.query<{ recepcion_id: string }>(
+            `UPDATE ${tRI} SET cantidad_facturada = GREATEST(0, COALESCE(cantidad_facturada, 0) - $1::numeric)
+              WHERE id = $2::uuid AND empresa_id = $3::uuid RETURNING recepcion_id`,
+            [Number(it.cantidad), it.recepcion_item_id, empresaId]
+          );
+          if (r.rows[0]) recepcionesTocadas.add(r.rows[0].recepcion_id);
+        }
+        for (const recId of recepcionesTocadas) {
+          await recalcularFacturacionRecepcionEnTx(client as unknown as import("pg").PoolClient, schema, empresaId, recId);
+        }
+      }
 
       let revertidos = 0;
       if (compra.afecta_stock !== false) {

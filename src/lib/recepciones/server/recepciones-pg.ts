@@ -331,3 +331,145 @@ export async function recalcularFacturacionRecepcionEnTx(
     [recepcionId, empresaId, estado]
   );
 }
+
+/**
+ * Anula una recepción: saca del stock lo que entró (total y depósito) con un
+ * movimiento de salida, y la orden vuelve a tener esas cantidades pendientes.
+ *
+ * No se puede si ya se facturó (primero se anula la compra) ni si ese stock ya
+ * se usó o vendió (no se deja en negativo). El costo promedio que puso la
+ * recepción no se recalcula hacia atrás.
+ */
+export async function anularRecepcion(
+  schemaRaw: string,
+  empresaId: string,
+  id: string,
+  motivo: string,
+  usuario: { id: string | null; nombre: string | null }
+): Promise<void> {
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  if (motivo.trim().length < 3) throw new RecepcionError("Escribí el motivo de la anulación.");
+  const tR = quoteSchemaTable(schema, "recepciones");
+  const tRI = quoteSchemaTable(schema, "recepcion_items");
+  const tM = quoteSchemaTable(schema, "movimientos_inventario");
+  const tP = quoteSchemaTable(schema, "productos");
+  const tSU = quoteSchemaTable(schema, "inventario_stock_ubicacion");
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    const { rows: rec } = await client.query<{ numero: string; estado: string; orden_id: string; ubicacion_id: string | null; observacion: string | null }>(
+      `SELECT numero, estado, orden_id, ubicacion_id, observacion FROM ${tR} WHERE id = $1::uuid AND empresa_id = $2::uuid FOR UPDATE`,
+      [id, empresaId]
+    );
+    const r = rec[0];
+    if (!r) throw new RecepcionError("Recepción no encontrada.", 404);
+    if (r.estado !== "confirmada") throw new RecepcionError("La recepción ya está anulada.", 409);
+    const { rows: items } = await client.query<{ producto_id: string | null; producto_nombre: string | null; cantidad: string; facturada: string }>(
+      `SELECT producto_id, producto_nombre, cantidad_recibida::text AS cantidad, COALESCE(cantidad_facturada, 0)::text AS facturada
+         FROM ${tRI} WHERE recepcion_id = $1::uuid AND empresa_id = $2::uuid`,
+      [id, empresaId]
+    );
+    if (items.some((i) => Number(i.facturada) > 0)) {
+      throw new RecepcionError("Ya tiene compras facturadas. Anulá primero esas compras y después la recepción.", 409);
+    }
+    // Lo que entró, por producto.
+    const porProducto = new Map<string, { cantidad: number; nombre: string }>();
+    for (const i of items) {
+      if (!i.producto_id) continue;
+      const prev = porProducto.get(i.producto_id) ?? { cantidad: 0, nombre: i.producto_nombre ?? "" };
+      prev.cantidad += Number(i.cantidad);
+      porProducto.set(i.producto_id, prev);
+    }
+    for (const [productoId, agg] of porProducto) {
+      const { rows: st } = await client.query<{ total: string; dep: string | null }>(
+        `SELECT p.stock_actual::text AS total,
+                (SELECT s.stock_actual::text FROM ${tSU} s
+                  WHERE s.producto_id = p.id AND s.ubicacion_id = $3::uuid AND s.empresa_id = p.empresa_id) AS dep
+           FROM ${tP} p WHERE p.id = $1::uuid AND p.empresa_id = $2::uuid FOR UPDATE`,
+        [productoId, empresaId, r.ubicacion_id]
+      );
+      const hay = r.ubicacion_id ? Number(st[0]?.dep ?? 0) : Number(st[0]?.total ?? 0);
+      if (hay + 1e-9 < agg.cantidad) {
+        throw new RecepcionError(
+          `"${agg.nombre}": entraron ${agg.cantidad} y en el depósito quedan ${hay}. Ya se usó o vendió parte; no se puede anular la recepción.`,
+          409
+        );
+      }
+      await client.query(
+        `INSERT INTO ${tM} (empresa_id, producto_id, producto_nombre, producto_sku, tipo, cantidad,
+           costo_unitario, origen, referencia, fecha, created_by, usuario_nombre, documento_tipo, documento_id)
+         SELECT $1::uuid, $2::uuid, $3, COALESCE(p.sku, ''), 'SALIDA', $4::numeric, COALESCE(p.costo_promedio, 0),
+                'anulacion', $5, now(), $6::uuid, $7, 'recepcion', $8::uuid
+           FROM ${tP} p WHERE p.id = $2::uuid AND p.empresa_id = $1::uuid`,
+        [empresaId, productoId, agg.nombre, agg.cantidad, `Anulación ${r.numero}`, usuario.id, usuario.nombre, id]
+      );
+      await client.query(
+        `UPDATE ${tP} SET stock_actual = COALESCE(stock_actual, 0) - $1::numeric, updated_at = now()
+          WHERE id = $2::uuid AND empresa_id = $3::uuid`,
+        [agg.cantidad, productoId, empresaId]
+      );
+      if (r.ubicacion_id) {
+        await client.query(
+          `UPDATE ${tSU} SET stock_actual = stock_actual - $1::numeric, updated_at = now()
+            WHERE producto_id = $2::uuid AND ubicacion_id = $3::uuid AND empresa_id = $4::uuid`,
+          [agg.cantidad, productoId, r.ubicacion_id, empresaId]
+        );
+      }
+    }
+    const obs = [r.observacion, `ANULADA: ${motivo.trim()}${usuario.nombre ? ` (${usuario.nombre})` : ""}`].filter(Boolean).join(" · ");
+    await client.query(`UPDATE ${tR} SET estado = 'anulada', observacion = $3 WHERE id = $1::uuid AND empresa_id = $2::uuid`, [
+      id,
+      empresaId,
+      obs.slice(0, 1000),
+    ]);
+    await recalcularEstadoOrdenEnTx(client, schema, empresaId, r.orden_id);
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => null);
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** Borra de la lista una recepción anulada (su stock ya se revirtió). */
+export async function eliminarRecepcion(schemaRaw: string, empresaId: string, id: string): Promise<void> {
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  const tR = quoteSchemaTable(schema, "recepciones");
+  const tRI = quoteSchemaTable(schema, "recepcion_items");
+  const tCI = quoteSchemaTable(schema, "compra_items");
+  const { rows } = await pool().query<{ estado: string }>(`SELECT estado FROM ${tR} WHERE id = $1::uuid AND empresa_id = $2::uuid`, [
+    id,
+    empresaId,
+  ]);
+  if (!rows[0]) throw new RecepcionError("Recepción no encontrada.", 404);
+  if (rows[0].estado !== "anulada") throw new RecepcionError("Para borrarla, primero anulala.", 409);
+  const comp = await pool().query(
+    `SELECT 1 FROM ${tCI} ci JOIN ${tRI} ri ON ri.id = ci.recepcion_item_id WHERE ri.recepcion_id = $1::uuid LIMIT 1`,
+    [id]
+  );
+  if (comp.rows.length) {
+    throw new RecepcionError("Hay compras (aunque estén anuladas) que la referencian. Borrá primero esas compras.", 409);
+  }
+  await pool().query(`DELETE FROM ${tR} WHERE id = $1::uuid AND empresa_id = $2::uuid`, [id, empresaId]);
+}
+
+/** Datos que no mueven stock: fecha y observación. */
+export async function editarDatosRecepcion(
+  schemaRaw: string,
+  empresaId: string,
+  id: string,
+  d: { fecha?: unknown; observacion?: unknown }
+): Promise<void> {
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  const tR = quoteSchemaTable(schema, "recepciones");
+  const fecha = d.fecha != null ? String(d.fecha).slice(0, 10) : null;
+  if (fecha && !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new RecepcionError("Fecha inválida.");
+  const obs = d.observacion != null ? String(d.observacion).trim().slice(0, 1000) || null : undefined;
+  const r = await pool().query(
+    `UPDATE ${tR} SET fecha = COALESCE($3::date, fecha), observacion = CASE WHEN $4::boolean THEN $5 ELSE observacion END
+      WHERE id = $1::uuid AND empresa_id = $2::uuid`,
+    [id, empresaId, fecha, obs !== undefined, obs ?? null]
+  );
+  if (!r.rowCount) throw new RecepcionError("Recepción no encontrada.", 404);
+}

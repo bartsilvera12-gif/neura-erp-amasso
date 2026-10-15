@@ -48,6 +48,34 @@ export default function RecepcionesClient() {
   const [busqueda, setBusqueda] = useState("");
   const [cuentas, setCuentas] = useState<CuentaContableOpcion[]>([]);
   const [facturar, setFacturar] = useState<{ recepcion: Recepcion; items: RecepcionItem[] } | null>(null);
+  const [editar, setEditar] = useState<{ id: string; numero: string; fecha: string; observacion: string } | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+
+  async function enviar(url: string, init: RequestInit, ok: () => void) {
+    setOcupado(true); setError(null);
+    try {
+      const r = await apiFetch(url, { ...init, headers: { "Content-Type": "application/json" } });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.success) { setError(j?.error ?? `Error ${r.status}`); return; }
+      ok();
+      await cargar();
+    } finally { setOcupado(false); }
+  }
+
+  /** Anular: saca del stock lo que entró y la orden vuelve a tener pendiente esa cantidad. */
+  function anular(r: Recepcion) {
+    const motivo = window.prompt(
+      `¿Anular ${r.numero}? Se saca del stock lo que entró con esta recepción y la orden vuelve a quedar pendiente.\n\nMotivo:`
+    );
+    if (motivo == null) return;
+    if (motivo.trim().length < 3) { setError("Escribí el motivo de la anulación."); return; }
+    void enviar(`/api/recepciones/${r.id}`, { method: "PATCH", body: JSON.stringify({ accion: "anular", motivo }) }, () => null);
+  }
+
+  function eliminar(r: Recepcion) {
+    if (!window.confirm(`¿Borrar ${r.numero} de la lista? Ya está anulada. No se puede deshacer.`)) return;
+    void enviar(`/api/recepciones/${r.id}`, { method: "DELETE" }, () => null);
+  }
 
   const cargar = useCallback(async () => {
     setLoading(true); setError(null);
@@ -156,11 +184,31 @@ export default function RecepcionesClient() {
                   <td className="px-3 py-2 text-right tabular-nums font-medium text-blue-700">{fmt(r.cant_pend_facturar ?? 0)}</td>
                   <td className="px-3 py-2"><span className={`rounded px-2 py-0.5 text-xs font-medium ${f.cls}`}>{f.label}</span></td>
                   <td className="px-3 py-2 text-right">
-                    {r.estado_facturacion !== "facturada" ? (
-                      <button onClick={() => abrirFacturar(r)} className="text-xs font-semibold text-[#3F8E91] hover:underline">
-                        Crear compra / registrar factura
-                      </button>
-                    ) : <span className="text-xs text-slate-400">—</span>}
+                    <div className="flex flex-wrap items-center justify-end gap-1.5 text-xs">
+                      {r.estado === "anulada" ? (
+                        <>
+                          <span className="rounded bg-rose-50 px-2 py-0.5 font-medium text-rose-700">Anulada</span>
+                          <button disabled={ocupado} onClick={() => eliminar(r)} className="rounded px-2 py-1 font-semibold text-red-600 hover:bg-red-50">Eliminar</button>
+                        </>
+                      ) : (
+                        <>
+                          {r.estado_facturacion !== "facturada" ? (
+                            <button onClick={() => abrirFacturar(r)} className="font-semibold text-[#3F8E91] hover:underline">
+                              Crear compra / registrar factura
+                            </button>
+                          ) : null}
+                          <button
+                            onClick={() => setEditar({ id: r.id, numero: r.numero, fecha: (r.fecha ?? "").slice(0, 10), observacion: r.observacion ?? "" })}
+                            className="rounded px-2 py-1 text-slate-600 hover:bg-slate-100"
+                          >
+                            Editar
+                          </button>
+                          {(r.cant_facturada ?? 0) === 0 ? (
+                            <button disabled={ocupado} onClick={() => anular(r)} className="rounded px-2 py-1 text-amber-700 hover:bg-amber-50">Anular</button>
+                          ) : null}
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -168,6 +216,37 @@ export default function RecepcionesClient() {
           </tbody>
         </table>
       </div>
+
+      {editar && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 p-4" onClick={() => setEditar(null)}>
+          <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-slate-900">Editar {editar.numero}</h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Fecha y observación. Para cambiar cantidades, costos o depósito, anulala y registrá la recepción de nuevo.
+            </p>
+            <label className="mt-4 block text-xs font-medium text-slate-500">
+              Fecha
+              <input type="date" value={editar.fecha} onChange={(e) => setEditar({ ...editar, fecha: e.target.value })}
+                className="mt-1 w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-800 focus:border-[#4FAEB2] focus:outline-none focus:ring-2 focus:ring-[#4FAEB2]/30" />
+            </label>
+            <label className="mt-3 block text-xs font-medium text-slate-500">
+              Observación
+              <textarea rows={3} value={editar.observacion} onChange={(e) => setEditar({ ...editar, observacion: e.target.value })}
+                className="mt-1 w-full resize-none rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-800 focus:border-[#4FAEB2] focus:outline-none focus:ring-2 focus:ring-[#4FAEB2]/30" />
+            </label>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setEditar(null)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">Cancelar</button>
+              <button
+                disabled={ocupado}
+                onClick={() => void enviar(`/api/recepciones/${editar.id}`, { method: "PATCH", body: JSON.stringify({ fecha: editar.fecha, observacion: editar.observacion }) }, () => setEditar(null))}
+                className="rounded-lg bg-[#4FAEB2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3F8E91] disabled:opacity-50"
+              >
+                {ocupado ? "Guardando…" : "Guardar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {facturar && (
         <ModalFacturar data={facturar} cuentas={cuentas}
