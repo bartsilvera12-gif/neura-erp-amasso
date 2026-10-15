@@ -58,13 +58,15 @@ type Detalle = {
   correcciones: {
     accion: "agregar" | "modificar" | "anular";
     antes: { tipo?: TipoEvento; hora?: string } | null;
-    despues: { tipo?: TipoEvento; hora?: string; anulado?: boolean } | null;
+    despues: { tipo?: TipoEvento; hora?: string; hasta?: string; anulado?: boolean } | null;
     motivo: string;
     usuario_nombre: string | null;
     cuando: string;
   }[];
   totales?: { trabajado_min: number | null; break_min: number; almuerzo_min: number; fuera_min: number; avisos: string[] };
 };
+
+const esInicioPausa = (t: TipoEvento) => t === "inicio_break" || t === "inicio_almuerzo";
 
 const hm = (min: number) => `${Math.floor(min / 60)} h ${String(Math.round(min % 60)).padStart(2, "0")} min`;
 
@@ -292,7 +294,7 @@ export function Marcaciones({ empleados }: { empleados: { id: string; nombre: st
 // ─── Detalle y corrección de un día ───────────────────────────────────────
 
 type Edicion =
-  | { accion: "agregar"; tipo: TipoEvento; hora: string }
+  | { accion: "agregar"; tipo: TipoEvento; hora: string; horaFin?: string }
   | { accion: "modificar"; eventoId: string; tipo: TipoEvento; hora: string }
   | { accion: "anular"; eventoId: string; tipo: TipoEvento; hora: string };
 
@@ -331,7 +333,7 @@ export function DiaModal({
     setError(null);
     try {
       const body: Record<string, unknown> = { empleado_id: empleadoId, fecha, accion: ed.accion, motivo };
-      if (ed.accion === "agregar") Object.assign(body, { tipo: ed.tipo, hora: ed.hora });
+      if (ed.accion === "agregar") Object.assign(body, { tipo: ed.tipo, hora: ed.hora, hora_fin: esInicioPausa(ed.tipo) ? ed.horaFin : undefined });
       if (ed.accion === "modificar") Object.assign(body, { evento_id: ed.eventoId, hora: ed.hora });
       if (ed.accion === "anular") Object.assign(body, { evento_id: ed.eventoId });
       setD(await pedir<Detalle>("/api/rrhh/marcaciones/corregir", { method: "POST", body: JSON.stringify(body) }));
@@ -348,8 +350,8 @@ export function DiaModal({
   const validos = d?.eventos.filter((e) => !e.anulado) ?? [];
   const sugerido: TipoEvento = validos.length ? "salida" : "entrada";
 
-  const describir = (v: { tipo?: TipoEvento; hora?: string; anulado?: boolean } | null) =>
-    !v ? "—" : v.anulado ? "anulada" : `${v.tipo ? ETIQUETA[v.tipo] : ""} ${v.hora ?? ""}`.trim();
+  const describir = (v: { tipo?: TipoEvento; hora?: string; hasta?: string; anulado?: boolean } | null) =>
+    !v ? "—" : v.anulado ? "anulada" : `${v.tipo ? ETIQUETA[v.tipo] : ""} ${v.hora ?? ""}${v.hasta ? ` a ${v.hasta}` : ""}`.trim();
 
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-900/40 p-0 backdrop-blur-sm sm:items-center sm:p-4" onClick={onCerrar}>
@@ -458,9 +460,18 @@ export function DiaModal({
               ) : null}
               {ed.accion !== "anular" ? (
                 <div>
-                  <label className={LABEL} htmlFor="dc-hora">Hora</label>
+                  <label className={LABEL} htmlFor="dc-hora">{ed.accion === "agregar" && esInicioPausa(ed.tipo) ? "Desde" : "Hora"}</label>
                   <input id="dc-hora" type="time" className={`${INPUT} w-full`} value={ed.hora} onChange={(e) => setEd({ ...ed, hora: e.target.value })} />
                 </div>
+              ) : null}
+              {ed.accion === "agregar" && esInicioPausa(ed.tipo) ? (
+                <div>
+                  <label className={LABEL} htmlFor="dc-hasta">Hasta</label>
+                  <input id="dc-hasta" type="time" className={`${INPUT} w-full`} value={ed.horaFin ?? ""} onChange={(e) => setEd({ ...ed, horaFin: e.target.value })} />
+                </div>
+              ) : null}
+              {ed.accion === "agregar" && esInicioPausa(ed.tipo) ? (
+                <p className="col-span-2 -mt-1 text-[11px] text-slate-500">Se agregan el inicio y el fin juntos.</p>
               ) : null}
               <div className="col-span-2">
                 <label className={LABEL} htmlFor="dc-motivo">Motivo *</label>
@@ -480,7 +491,12 @@ export function DiaModal({
               <button
                 type="button"
                 className={ed.accion === "anular" ? "rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-50" : BTN_PRIMARY}
-                disabled={guardando || motivo.trim().length < 3 || (ed.accion !== "anular" && !ed.hora)}
+                disabled={
+                  guardando ||
+                  motivo.trim().length < 3 ||
+                  (ed.accion !== "anular" && !ed.hora) ||
+                  (ed.accion === "agregar" && esInicioPausa(ed.tipo) && !ed.horaFin)
+                }
                 onClick={() => void guardar()}
               >
                 {guardando ? "Guardando…" : ed.accion === "anular" ? "Anular" : "Guardar"}

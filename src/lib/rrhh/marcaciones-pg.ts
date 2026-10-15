@@ -751,7 +751,8 @@ export async function detalleDia(schemaRaw: string, empresaId: string, empleadoI
 }
 
 export type Correccion =
-  | { accion: "agregar"; tipo: TipoEvento; hora: string }
+  /** `horaFin`: con un inicio de break o almuerzo, agrega también su fin (los dos juntos). */
+  | { accion: "agregar"; tipo: TipoEvento; hora: string; horaFin?: string | null }
   | { accion: "modificar"; eventoId: string; hora: string }
   | { accion: "anular"; eventoId: string };
 
@@ -801,6 +802,19 @@ export async function corregir(
       );
       eventoId = r.rows[0].id;
       despues = { tipo: cor.tipo, hora: cor.hora };
+      // Una pausa en medio de un día ya marcado entra entera: agregando el
+      // inicio solo, la secuencia queda abierta y no valida.
+      const fin: TipoEvento | null = cor.tipo === "inicio_break" ? "fin_break" : cor.tipo === "inicio_almuerzo" ? "fin_almuerzo" : null;
+      if (fin && cor.horaFin) {
+        if (cor.horaFin <= cor.hora) throw new AsistenciaError("La hora de fin tiene que ser después de la de inicio.");
+        const exprFin = aMomento(cor.horaFin);
+        await c.query(
+          `INSERT INTO ${EV} (empresa_id, empleado_id, jornada, tipo, momento, origen, sesion_usuario_id, sesion_usuario_nombre)
+           VALUES ($3::uuid, $4::uuid, $1::date, $5, ${exprFin}, 'admin', $6::uuid, $7)`,
+          [jornada, cor.horaFin, empresaId, empleadoId, fin, usuario.id, usuario.nombre]
+        );
+        despues = { tipo: cor.tipo, hora: cor.hora, hasta: cor.horaFin };
+      }
     } else {
       const ev = await c.query<{ id: string; tipo: TipoEvento; hora: string; anulado: boolean }>(
         `SELECT id, tipo, to_char(momento AT TIME ZONE '${ZONA}', 'HH24:MI') AS hora, anulado FROM ${EV}

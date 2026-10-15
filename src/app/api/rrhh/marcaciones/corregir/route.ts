@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     }
     const cor: Correccion =
       accion === "agregar"
-        ? { accion, tipo: String(b.tipo ?? "") as never, hora: String(b.hora ?? "") }
+        ? { accion, tipo: String(b.tipo ?? "") as never, hora: String(b.hora ?? ""), horaFin: b.hora_fin ? String(b.hora_fin) : null }
         : accion === "modificar"
           ? { accion, eventoId: String(b.evento_id ?? ""), hora: String(b.hora ?? "") }
           : { accion: "anular", eventoId: String(b.evento_id ?? "") };
