@@ -454,22 +454,237 @@ export async function eliminarRecepcion(schemaRaw: string, empresaId: string, id
   await pool().query(`DELETE FROM ${tR} WHERE id = $1::uuid AND empresa_id = $2::uuid`, [id, empresaId]);
 }
 
-/** Datos que no mueven stock: fecha y observación. */
-export async function editarDatosRecepcion(
+export interface EditarRecepcionInput {
+  fecha?: unknown;
+  observacion?: unknown;
+  documento_url?: unknown;
+  /** undefined = no cambia; null o "" = sin depósito. */
+  ubicacion_id?: unknown;
+  items?: { id: string; cantidad_recibida: unknown; costo_unitario_recibido: unknown }[];
+}
+
+/**
+ * Edita una recepción confirmada: datos, depósito, cantidades y costos, en UNA
+ * transacción. Lo que cambia en cantidad o depósito se refleja en el stock (total
+ * y por depósito) con un movimiento "Corrección RC-…".
+ *
+ * Límites: una cantidad no puede quedar por debajo de lo ya facturado, ni por
+ * encima de lo pedido en la orden (salvo que la recepción ya fuera excedente),
+ * ni sacar del depósito stock que ya se usó o vendió. El costo promedio del
+ * producto se actualiza solo si esta recepción fue su última entrada.
+ */
+export async function editarRecepcion(
   schemaRaw: string,
   empresaId: string,
   id: string,
-  d: { fecha?: unknown; observacion?: unknown }
+  d: EditarRecepcionInput,
+  usuario: { id: string | null; nombre: string | null }
 ): Promise<void> {
   const schema = assertAllowedChatDataSchema(schemaRaw);
   const tR = quoteSchemaTable(schema, "recepciones");
-  const fecha = d.fecha != null ? String(d.fecha).slice(0, 10) : null;
+  const tRI = quoteSchemaTable(schema, "recepcion_items");
+  const tOCI = quoteSchemaTable(schema, "orden_compra_items");
+  const tM = quoteSchemaTable(schema, "movimientos_inventario");
+  const tP = quoteSchemaTable(schema, "productos");
+  const tSU = quoteSchemaTable(schema, "inventario_stock_ubicacion");
+  const tU = quoteSchemaTable(schema, "inventario_ubicaciones");
+
+  const fecha = d.fecha != null && d.fecha !== "" ? String(d.fecha).slice(0, 10) : null;
   if (fecha && !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new RecepcionError("Fecha inválida.");
-  const obs = d.observacion != null ? String(d.observacion).trim().slice(0, 1000) || null : undefined;
-  const r = await pool().query(
-    `UPDATE ${tR} SET fecha = COALESCE($3::date, fecha), observacion = CASE WHEN $4::boolean THEN $5 ELSE observacion END
-      WHERE id = $1::uuid AND empresa_id = $2::uuid`,
-    [id, empresaId, fecha, obs !== undefined, obs ?? null]
-  );
-  if (!r.rowCount) throw new RecepcionError("Recepción no encontrada.", 404);
+  const obs = d.observacion !== undefined ? String(d.observacion ?? "").trim().slice(0, 1000) || null : undefined;
+  const doc = d.documento_url !== undefined ? String(d.documento_url ?? "").trim().slice(0, 1000) || null : undefined;
+
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    const { rows: rec } = await client.query<{
+      numero: string; estado: string; orden_id: string; ubicacion_id: string | null;
+      excedente_confirmado: boolean; created_at: string;
+    }>(
+      `SELECT numero, estado, orden_id, ubicacion_id, excedente_confirmado, created_at
+         FROM ${tR} WHERE id = $1::uuid AND empresa_id = $2::uuid FOR UPDATE`,
+      [id, empresaId]
+    );
+    const r = rec[0];
+    if (!r) throw new RecepcionError("Recepción no encontrada.", 404);
+    if (r.estado !== "confirmada") throw new RecepcionError("La recepción está anulada; no se puede editar.", 409);
+
+    const ubicNueva =
+      d.ubicacion_id === undefined ? r.ubicacion_id : d.ubicacion_id ? String(d.ubicacion_id) : null;
+    if (ubicNueva && ubicNueva !== r.ubicacion_id) {
+      const { rows: u } = await client.query(`SELECT 1 FROM ${tU} WHERE id = $1::uuid AND empresa_id = $2::uuid`, [
+        ubicNueva,
+        empresaId,
+      ]);
+      if (!u[0]) throw new RecepcionError("El depósito elegido no existe.");
+    }
+
+    const { rows: actuales } = await client.query<{
+      id: string; orden_item_id: string | null; producto_id: string | null; producto_nombre: string | null;
+      cantidad: string; costo: string; facturada: string;
+    }>(
+      `SELECT id, orden_item_id, producto_id, producto_nombre, cantidad_recibida::text AS cantidad,
+              costo_unitario_recibido::text AS costo, COALESCE(cantidad_facturada, 0)::text AS facturada
+         FROM ${tRI} WHERE recepcion_id = $1::uuid AND empresa_id = $2::uuid FOR UPDATE`,
+      [id, empresaId]
+    );
+
+    // Nuevos valores por línea (las que no vienen quedan igual).
+    const nuevos = new Map(actuales.map((a) => [a.id, { cantidad: Number(a.cantidad), costo: Number(a.costo) }]));
+    for (const it of d.items ?? []) {
+      const a = actuales.find((x) => x.id === it.id);
+      if (!a) throw new RecepcionError("Algún ítem no pertenece a esta recepción.");
+      const cantidad = Number(it.cantidad_recibida);
+      const costo = Number(it.costo_unitario_recibido);
+      const nombre = a.producto_nombre ?? "Ítem";
+      if (!(cantidad > 0)) throw new RecepcionError(`"${nombre}": la cantidad tiene que ser mayor a 0. Para sacar todo, anulá la recepción.`);
+      if (!(costo >= 0)) throw new RecepcionError(`"${nombre}": el costo no puede ser negativo.`);
+      if (cantidad + 1e-9 < Number(a.facturada)) {
+        throw new RecepcionError(`"${nombre}": ya se facturaron ${Number(a.facturada)}; la cantidad no puede quedar por debajo.`);
+      }
+      nuevos.set(a.id, { cantidad, costo });
+    }
+
+    // No recibir más de lo pedido (salvo recepción ya marcada como excedente).
+    if (!r.excedente_confirmado) {
+      for (const a of actuales) {
+        const nv = nuevos.get(a.id)!;
+        if (!a.orden_item_id || nv.cantidad <= Number(a.cantidad)) continue;
+        const { rows: q } = await client.query<{ pedido: string; otras: string }>(
+          `SELECT oi.cantidad::text AS pedido,
+                  COALESCE((SELECT SUM(ri.cantidad_recibida) FROM ${tRI} ri JOIN ${tR} r2 ON r2.id = ri.recepcion_id
+                             WHERE ri.orden_item_id = oi.id AND r2.estado = 'confirmada' AND ri.recepcion_id <> $2::uuid), 0)::text AS otras
+             FROM ${tOCI} oi WHERE oi.id = $1::uuid`,
+          [a.orden_item_id, id]
+        );
+        const max = Number(q[0]?.pedido ?? 0) - Number(q[0]?.otras ?? 0);
+        if (nv.cantidad > max + 1e-9) {
+          throw new RecepcionError(
+            `"${a.producto_nombre ?? "Ítem"}": la orden pide ${Number(q[0]?.pedido ?? 0)}${Number(q[0]?.otras ?? 0) > 0 ? ` y otras recepciones ya trajeron ${Number(q[0]?.otras)}` : ""}, así que acá puede quedar como máximo ${Math.max(0, max)}. Para recibir de más, registrá una recepción excedente.`
+          );
+        }
+      }
+    }
+
+    // Stock por producto: lo que había entrado vs. lo que queda.
+    const porProducto = new Map<string, { nombre: string; antes: number; despues: number; costoAntes: number; costoDespues: number }>();
+    for (const a of actuales) {
+      if (!a.producto_id) continue;
+      const nv = nuevos.get(a.id)!;
+      const p = porProducto.get(a.producto_id) ?? { nombre: a.producto_nombre ?? "", antes: 0, despues: 0, costoAntes: 0, costoDespues: 0 };
+      p.antes += Number(a.cantidad);
+      p.despues += nv.cantidad;
+      p.costoAntes += Number(a.cantidad) * Number(a.costo);
+      p.costoDespues += nv.cantidad * nv.costo;
+      porProducto.set(a.producto_id, p);
+    }
+    const mismoDeposito = (r.ubicacion_id ?? null) === (ubicNueva ?? null);
+    const referencia = `Corrección ${r.numero}`;
+
+    for (const [productoId, p] of porProducto) {
+      const delta = p.despues - p.antes;
+      const { rows: st } = await client.query<{ total: string; dep: string | null }>(
+        `SELECT p.stock_actual::text AS total,
+                (SELECT s.stock_actual::text FROM ${tSU} s
+                  WHERE s.producto_id = p.id AND s.ubicacion_id = $3::uuid AND s.empresa_id = p.empresa_id) AS dep
+           FROM ${tP} p WHERE p.id = $1::uuid AND p.empresa_id = $2::uuid FOR UPDATE`,
+        [productoId, empresaId, r.ubicacion_id]
+      );
+      // Cuánto hay que sacar del lugar donde entró.
+      // Si no tenía depósito, el cambio de depósito no saca nada del total.
+      const sacar = mismoDeposito || !r.ubicacion_id ? Math.max(0, -delta) : p.antes;
+      const hay = r.ubicacion_id ? Number(st[0]?.dep ?? 0) : Number(st[0]?.total ?? 0);
+      if (sacar > 0 && hay + 1e-9 < sacar) {
+        throw new RecepcionError(
+          `"${p.nombre}": hay que sacar ${sacar} del depósito y quedan ${hay}. Ya se usó o vendió parte; no se puede hacer este cambio.`,
+          409
+        );
+      }
+
+      const costoNuevo = p.despues > 0 ? p.costoDespues / p.despues : 0;
+      if (Math.abs(delta) > 1e-9) {
+        await client.query(
+          `INSERT INTO ${tM} (empresa_id, producto_id, producto_nombre, producto_sku, tipo, cantidad,
+             costo_unitario, origen, referencia, fecha, created_by, usuario_nombre, documento_tipo, documento_id)
+           SELECT $1::uuid, $2::uuid, $3, COALESCE(p.sku, ''), $4, $5::numeric, $6::numeric,
+                  'recepcion', $7, clock_timestamp(), $8::uuid, $9, 'recepcion', $10::uuid
+             FROM ${tP} p WHERE p.id = $2::uuid AND p.empresa_id = $1::uuid`,
+          [empresaId, productoId, p.nombre, delta > 0 ? "ENTRADA" : "SALIDA", Math.abs(delta), costoNuevo,
+           referencia, usuario.id, usuario.nombre, id]
+        );
+        await client.query(
+          `UPDATE ${tP} SET stock_actual = COALESCE(stock_actual, 0) + $1::numeric, updated_at = now()
+            WHERE id = $2::uuid AND empresa_id = $3::uuid`,
+          [delta, productoId, empresaId]
+        );
+      }
+
+      // Por depósito: mismo depósito → solo la diferencia; otro → sale todo de uno y entra al otro.
+      const mover = async (ubic: string, cantidad: number) => {
+        if (Math.abs(cantidad) < 1e-9) return;
+        await client.query(
+          `INSERT INTO ${tSU} (empresa_id, producto_id, ubicacion_id, stock_actual)
+           VALUES ($1::uuid, $2::uuid, $3::uuid, $4::numeric)
+           ON CONFLICT (empresa_id, producto_id, ubicacion_id)
+             DO UPDATE SET stock_actual = ${tSU.split(".").pop()}.stock_actual + EXCLUDED.stock_actual, updated_at = now()`,
+          [empresaId, productoId, ubic, cantidad]
+        );
+      };
+      if (mismoDeposito) {
+        if (r.ubicacion_id) await mover(r.ubicacion_id, delta);
+      } else {
+        if (r.ubicacion_id) await mover(r.ubicacion_id, -p.antes);
+        if (ubicNueva) await mover(ubicNueva, p.despues);
+      }
+
+      // Costo promedio: solo si cambió y nadie más trajo ese producto después.
+      const costoAntes = p.antes > 0 ? p.costoAntes / p.antes : 0;
+      if (Math.abs(costoNuevo - costoAntes) > 1e-6) {
+        const { rows: despues } = await client.query(
+          `SELECT 1 FROM ${tM}
+            WHERE empresa_id = $1::uuid AND producto_id = $2::uuid AND tipo = 'ENTRADA' AND fecha > $3::timestamptz
+              AND origen IN ('recepcion', 'compra', 'carga_proveedor')
+              AND NOT (documento_tipo = 'recepcion' AND documento_id = $4::uuid)
+            LIMIT 1`,
+          [empresaId, productoId, r.created_at, id]
+        );
+        if (!despues[0]) {
+          await client.query(`UPDATE ${tP} SET costo_promedio = $1::numeric WHERE id = $2::uuid AND empresa_id = $3::uuid`, [
+            costoNuevo,
+            productoId,
+            empresaId,
+          ]);
+        }
+      }
+    }
+
+    for (const a of actuales) {
+      const nv = nuevos.get(a.id)!;
+      if (nv.cantidad === Number(a.cantidad) && nv.costo === Number(a.costo)) continue;
+      await client.query(
+        `UPDATE ${tRI} SET cantidad_recibida = $3::numeric, costo_unitario_recibido = $4::numeric
+          WHERE id = $1::uuid AND empresa_id = $2::uuid`,
+        [a.id, empresaId, nv.cantidad, nv.costo]
+      );
+    }
+
+    await client.query(
+      `UPDATE ${tR}
+          SET fecha = COALESCE($3::date, fecha),
+              observacion = CASE WHEN $4::boolean THEN $5 ELSE observacion END,
+              documento_url = CASE WHEN $6::boolean THEN $7 ELSE documento_url END,
+              ubicacion_id = $8::uuid,
+              updated_at = now()
+        WHERE id = $1::uuid AND empresa_id = $2::uuid`,
+      [id, empresaId, fecha, obs !== undefined, obs ?? null, doc !== undefined, doc ?? null, ubicNueva]
+    );
+    await recalcularFacturacionRecepcionEnTx(client, schema, empresaId, id);
+    await recalcularEstadoOrdenEnTx(client, schema, empresaId, r.orden_id);
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => null);
+    throw e;
+  } finally {
+    client.release();
+  }
 }

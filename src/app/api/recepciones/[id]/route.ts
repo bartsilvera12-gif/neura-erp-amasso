@@ -7,7 +7,7 @@ import { API_ERRORS } from "@/lib/api/errors";
 import { conMotivo } from "@/lib/api/motivo-error";
 import {
   anularRecepcion,
-  editarDatosRecepcion,
+  editarRecepcion,
   eliminarRecepcion,
   getRecepcion,
   RecepcionError,
@@ -50,7 +50,8 @@ function errorDe(e: unknown, contexto: string) {
 /**
  * PATCH /api/recepciones/[id]
  *  - { accion: "anular", motivo } → revierte el stock que entró. Solo admin.
- *  - { fecha?, observacion? } → datos que no mueven stock.
+ *  - { fecha?, observacion?, documento_url?, ubicacion_id?, items? } → edición; si cambian
+ *    cantidades o depósito, el stock se ajusta en la misma transacción. Solo admin.
  */
 export async function PATCH(request: NextRequest, context: RouteContext) {
   const a = await soloAdmin(request);
@@ -65,7 +66,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         nombre: a.ctx.auth.nombre ?? a.ctx.auth.user?.email ?? null,
       });
     } else {
-      await editarDatosRecepcion(schema, a.ctx.auth.empresa_id, id, body);
+      await editarRecepcion(schema, a.ctx.auth.empresa_id, id, body, {
+        id: null,
+        nombre: a.ctx.auth.nombre ?? a.ctx.auth.user?.email ?? null,
+      });
     }
     return NextResponse.json(successResponse({ ok: true }));
   } catch (e) {

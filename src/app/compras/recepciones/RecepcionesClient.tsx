@@ -7,11 +7,13 @@ import { getCuentasContablesOpciones, type CuentaContableOpcion } from "@/lib/co
 import CuentaCombobox from "@/components/contabilidad/CuentaCombobox";
 import { Overlay } from "@/app/compras/ordenes/OrdenesClient";
 import { FechaSelect } from "@/components/ui/FechaSelect";
+import SmartCombobox, { type ComboOption } from "@/components/ui/SmartCombobox";
 
 interface Recepcion {
   id: string; numero: string; orden_id: string; orden_numero?: string | null;
   proveedor_id: string | null; proveedor_nombre: string | null;
-  fecha: string; ubicacion_nombre?: string | null; observacion: string | null;
+  fecha: string; ubicacion_id?: string | null; ubicacion_nombre?: string | null; observacion: string | null;
+  documento_url?: string | null;
   estado: string; estado_facturacion: string; excedente_confirmado: boolean;
   cant_recibida?: number; cant_facturada?: number; cant_pend_facturar?: number;
 }
@@ -48,7 +50,7 @@ export default function RecepcionesClient() {
   const [busqueda, setBusqueda] = useState("");
   const [cuentas, setCuentas] = useState<CuentaContableOpcion[]>([]);
   const [facturar, setFacturar] = useState<{ recepcion: Recepcion; items: RecepcionItem[] } | null>(null);
-  const [editar, setEditar] = useState<{ id: string; numero: string; fecha: string; observacion: string } | null>(null);
+  const [editar, setEditar] = useState<{ recepcion: Recepcion; items: RecepcionItem[] } | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
   async function enviar(url: string, init: RequestInit, ok: () => void) {
@@ -101,6 +103,14 @@ export default function RecepcionesClient() {
     return recepciones.filter((r) =>
       `${r.numero} ${r.orden_numero ?? ""} ${r.proveedor_nombre ?? ""}`.toLowerCase().includes(q));
   }, [recepciones, busqueda]);
+
+  async function abrirEditar(rec: Recepcion) {
+    setError(null);
+    const r = await apiFetch(`/api/recepciones/${rec.id}`);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j?.success) { setError(j?.error ?? `Error ${r.status}`); return; }
+    setEditar({ recepcion: j.data.recepcion as Recepcion, items: j.data.items as RecepcionItem[] });
+  }
 
   async function abrirFacturar(rec: Recepcion) {
     setError(null);
@@ -198,7 +208,7 @@ export default function RecepcionesClient() {
                             </button>
                           ) : null}
                           <button
-                            onClick={() => setEditar({ id: r.id, numero: r.numero, fecha: (r.fecha ?? "").slice(0, 10), observacion: r.observacion ?? "" })}
+                            onClick={() => void abrirEditar(r)}
                             className="rounded px-2 py-1 text-slate-600 hover:bg-slate-100"
                           >
                             Editar
@@ -226,34 +236,9 @@ export default function RecepcionesClient() {
       </div>
 
       {editar && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 p-4" onClick={() => setEditar(null)}>
-          <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-slate-900">Editar {editar.numero}</h3>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Fecha y observación. Para cambiar cantidades, costos o depósito, anulala y registrá la recepción de nuevo.
-            </p>
-            <label className="mt-4 block text-xs font-medium text-slate-500">
-              Fecha
-              <input type="date" value={editar.fecha} onChange={(e) => setEditar({ ...editar, fecha: e.target.value })}
-                className="mt-1 w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-800 focus:border-[#4FAEB2] focus:outline-none focus:ring-2 focus:ring-[#4FAEB2]/30" />
-            </label>
-            <label className="mt-3 block text-xs font-medium text-slate-500">
-              Observación
-              <textarea rows={3} value={editar.observacion} onChange={(e) => setEditar({ ...editar, observacion: e.target.value })}
-                className="mt-1 w-full resize-none rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-800 focus:border-[#4FAEB2] focus:outline-none focus:ring-2 focus:ring-[#4FAEB2]/30" />
-            </label>
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setEditar(null)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">Cancelar</button>
-              <button
-                disabled={ocupado}
-                onClick={() => void enviar(`/api/recepciones/${editar.id}`, { method: "PATCH", body: JSON.stringify({ fecha: editar.fecha, observacion: editar.observacion }) }, () => setEditar(null))}
-                className="rounded-lg bg-[#4FAEB2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3F8E91] disabled:opacity-50"
-              >
-                {ocupado ? "Guardando…" : "Guardar"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ModalEditar data={editar}
+          onClose={() => setEditar(null)}
+          onSaved={() => { setEditar(null); void cargar(); }} />
       )}
 
       {facturar && (
@@ -441,6 +426,144 @@ function ModalFacturar({ data, cuentas, onClose, onSaved }: {
             {busy ? "Registrando…" : "Registrar compra / factura"}
           </button>
         </div>
+      </div>
+    </Overlay>
+  );
+}
+
+/* ── modal: editar recepción (datos, depósito, cantidades y costos) ────── */
+function ModalEditar({ data, onClose, onSaved }: {
+  data: { recepcion: Recepcion; items: RecepcionItem[] };
+  onClose: () => void; onSaved: () => void;
+}) {
+  const { recepcion, items } = data;
+  const [fecha, setFecha] = useState((recepcion.fecha ?? "").slice(0, 10));
+  const [ubicacionId, setUbicacionId] = useState<string | null>(recepcion.ubicacion_id ?? null);
+  const [ubicaciones, setUbicaciones] = useState<ComboOption[]>([]);
+  const [observacion, setObservacion] = useState(recepcion.observacion ?? "");
+  const [documentoUrl, setDocumentoUrl] = useState(recepcion.documento_url ?? "");
+  const [cant, setCant] = useState<Record<string, string>>(
+    Object.fromEntries(items.map((i) => [i.id, String(n(i.cantidad_recibida))]))
+  );
+  const [costo, setCosto] = useState<Record<string, string>>(
+    Object.fromEntries(items.map((i) => [i.id, String(Math.round(n(i.costo_unitario_recibido)))]))
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiFetch("/api/inventario/ubicaciones").then(async (r) => {
+      const j = await r.json().catch(() => ({}));
+      const list = (j?.data?.ubicaciones ?? []) as { id: string; nombre: string; codigo?: string | null }[];
+      setUbicaciones(list.map((u) => ({ id: u.id, label: u.nombre, sub: u.codigo ?? null })));
+    }).catch(() => {});
+  }, []);
+
+  const cambiosStock = items.filter((i) => n(cant[i.id]) !== n(i.cantidad_recibida));
+  const cambiaDeposito = (ubicacionId ?? null) !== (recepcion.ubicacion_id ?? null);
+
+  async function guardar() {
+    setError(null);
+    for (const i of items) {
+      if (!(n(cant[i.id]) > 0)) { setError(`"${i.producto_nombre ?? "Ítem"}": la cantidad tiene que ser mayor a 0.`); return; }
+      if (n(cant[i.id]) < n(i.cantidad_facturada)) {
+        setError(`"${i.producto_nombre ?? "Ítem"}": ya se facturaron ${fmt(i.cantidad_facturada)}; no puede quedar menos.`); return;
+      }
+    }
+    setBusy(true);
+    try {
+      const r = await apiFetch(`/api/recepciones/${recepcion.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fecha, observacion, documento_url: documentoUrl, ubicacion_id: ubicacionId,
+          items: items.map((i) => ({ id: i.id, cantidad_recibida: n(cant[i.id]), costo_unitario_recibido: n(costo[i.id]) })),
+        }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.success) { setError(j?.error ?? `Error ${r.status}`); return; }
+      onSaved();
+    } catch (e) { setError(e instanceof Error ? e.message : "Error de red"); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <Overlay onClose={onClose} titulo={`Editar ${recepcion.numero}`}>
+      {error && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+      <p className="mb-3 text-xs text-slate-500">
+        Orden {recepcion.orden_numero ?? "—"} · {recepcion.proveedor_nombre ?? "—"}. Si cambiás cantidades o depósito, el stock se ajusta al guardar.
+      </p>
+      <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-3">
+        <div><label className="block text-xs font-semibold text-slate-500">Fecha</label>
+          <div className="mt-1"><FechaSelect value={fecha} onChange={(e) => setFecha(e.target.value)} className={INPUT} /></div></div>
+        <div><label className="block text-xs font-semibold text-slate-500">Depósito</label>
+          <div className="mt-1"><SmartCombobox options={ubicaciones} value={ubicacionId} onChange={setUbicacionId} placeholder="(Sin depósito)" /></div></div>
+        <div><label className="block text-xs font-semibold text-slate-500">Documento / remito (URL)</label>
+          <div className="mt-1"><input value={documentoUrl} onChange={(e) => setDocumentoUrl(e.target.value)} className={INPUT} placeholder="Opcional" /></div></div>
+      </div>
+
+      <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+        <table className="w-full min-w-[640px] text-xs">
+          <thead className="border-b bg-slate-50 uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="px-2 py-1.5 text-left">Ítem</th>
+              <th className="px-2 py-1.5 text-right">Recibido</th>
+              <th className="px-2 py-1.5 text-right">Facturado</th>
+              <th className="px-2 py-1.5 text-right">Cantidad</th>
+              <th className="px-2 py-1.5 text-right">Costo unit.</th>
+              <th className="px-2 py-1.5 text-right">Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((i) => {
+              const dif = n(cant[i.id]) - n(i.cantidad_recibida);
+              return (
+                <tr key={i.id} className="border-b last:border-0">
+                  <td className="px-2 py-1.5">{i.producto_nombre ?? "—"}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">{fmt(i.cantidad_recibida)}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">{fmt(i.cantidad_facturada)}</td>
+                  <td className="px-2 py-1.5 text-right">
+                    <input inputMode="decimal" value={cant[i.id] ?? ""} onChange={(e) => setCant({ ...cant, [i.id]: e.target.value })}
+                      className="w-24 rounded border border-slate-200 px-2 py-1 text-right" />
+                    {dif !== 0 && (
+                      <span className={`block text-[11px] ${dif > 0 ? "text-emerald-700" : "text-amber-700"}`}>
+                        stock {dif > 0 ? "+" : "−"}{fmt(Math.abs(dif))}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-2 py-1.5 text-right">
+                    <input inputMode="decimal" value={costo[i.id] ?? ""} onChange={(e) => setCosto({ ...costo, [i.id]: e.target.value })}
+                      className="w-28 rounded border border-slate-200 px-2 py-1 text-right" />
+                  </td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">{fmt(n(cant[i.id]) * n(costo[i.id]))}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {items.some((i) => n(i.cantidad_facturada) > 0) && (
+        <p className="mt-2 text-xs text-slate-500">
+          Lo ya facturado no se puede bajar. El costo de lo facturado quedó en la compra; acá cambia solo el de la recepción.
+        </p>
+      )}
+
+      <label className="mt-4 block text-xs font-semibold text-slate-500">Observación
+        <textarea rows={2} value={observacion} onChange={(e) => setObservacion(e.target.value)} className={`mt-1 ${INPUT}`} /></label>
+
+      {(cambiosStock.length > 0 || cambiaDeposito) && (
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+          Al guardar se ajusta el stock
+          {cambiosStock.length > 0 && <> de {cambiosStock.length} {cambiosStock.length === 1 ? "producto" : "productos"}</>}
+          {cambiaDeposito && <>{cambiosStock.length > 0 ? " y" : ""} se pasa lo recibido al depósito nuevo</>}.
+        </div>
+      )}
+
+      <div className="mt-4 flex justify-end gap-2 border-t pt-4">
+        <button onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancelar</button>
+        <button onClick={guardar} disabled={busy}
+          className="rounded-xl bg-[#4FAEB2] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#3F8E91] disabled:opacity-60">
+          {busy ? "Guardando…" : "Guardar cambios"}
+        </button>
       </div>
     </Overlay>
   );

@@ -34,6 +34,37 @@ interface FormLinea {
 /* ── helpers ───────────────────────────────────────────────────────────── */
 const fmt = (v: number | string) => Math.round(Number(v) || 0).toLocaleString("es-PY");
 const n = (v: string | number) => Number(v) || 0;
+/** El costo se carga con IVA incluido, igual que en Compras: 5% → 5/105, 10% → 10/110. */
+const ivaIncluido = (monto: number, tipo: string) =>
+  tipo === "5" ? Math.round(monto * (5 / 105)) : tipo === "10" ? Math.round(monto * (10 / 110)) : 0;
+const IVA_LABEL: Record<string, string> = { "5": "5%", "10": "10%", exenta: "Exenta" };
+/** Totales por tasa para el pie de la orden. */
+function resumenIva(lineas: { monto: number; iva: string }[]) {
+  const r = { gravado10: 0, iva10: 0, gravado5: 0, iva5: 0, exenta: 0, total: 0 };
+  for (const l of lineas) {
+    const iva = ivaIncluido(l.monto, l.iva);
+    if (l.iva === "10") { r.gravado10 += l.monto - iva; r.iva10 += iva; }
+    else if (l.iva === "5") { r.gravado5 += l.monto - iva; r.iva5 += iva; }
+    else r.exenta += l.monto;
+    r.total += l.monto;
+  }
+  return r;
+}
+function ResumenIva({ r }: { r: ReturnType<typeof resumenIva> }) {
+  const filas: [string, number][] = [];
+  if (r.exenta) filas.push(["Exentas", r.exenta]);
+  if (r.gravado5 || r.iva5) filas.push(["Gravadas 5%", r.gravado5], ["IVA 5%", r.iva5]);
+  if (r.gravado10 || r.iva10) filas.push(["Gravadas 10%", r.gravado10], ["IVA 10%", r.iva10]);
+  if (!filas.length) return null;
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+      {filas.map(([k, v]) => (
+        <span key={k}>{k}: <b className="tabular-nums text-slate-700">{fmt(v)}</b></span>
+      ))}
+      {r.iva5 + r.iva10 > 0 && <span>Total IVA: <b className="tabular-nums text-slate-700">{fmt(r.iva5 + r.iva10)}</b></span>}
+    </div>
+  );
+}
 const hoy = () => new Date().toISOString().slice(0, 10);
 const primerDiaMes = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; };
 const uuid = () =>
@@ -245,6 +276,7 @@ function ModalOrden({ proveedores, productos, cuentas, onClose, onSaved, onProve
   const [idem] = useState(uuid);
 
   const total = lineas.reduce((s, l) => s + n(l.cantidad) * n(l.costo_unitario_estimado), 0);
+  const resumen = resumenIva(lineas.map((l) => ({ monto: n(l.cantidad) * n(l.costo_unitario_estimado), iva: l.iva_tipo })));
   const set = (i: number, patch: Partial<FormLinea>) =>
     setLineas((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
 
@@ -334,13 +366,17 @@ function ModalOrden({ proveedores, productos, cuentas, onClose, onSaved, onProve
               <label className="text-xs font-semibold text-slate-500">Costo estimado
                 <input inputMode="decimal" value={l.costo_unitario_estimado}
                   onChange={(e) => set(i, { costo_unitario_estimado: e.target.value })} className={`mt-1 ${INPUT} text-right`} /></label>
-              <label className="text-xs font-semibold text-slate-500">IVA
+              <label className="text-xs font-semibold text-slate-500">IVA (incluido en el costo)
                 <select value={l.iva_tipo} onChange={(e) => set(i, { iva_tipo: e.target.value as IvaTipo })} className={`mt-1 ${INPUT}`}>
                   <option value="10">10%</option><option value="5">5%</option><option value="exenta">Exenta</option>
                 </select></label>
             </div>
             <p className="mt-2 text-right text-xs text-slate-500">
               Subtotal estimado: <b className="text-slate-800">{fmt(n(l.cantidad) * n(l.costo_unitario_estimado))}</b>
+              {l.iva_tipo !== "exenta" && n(l.cantidad) * n(l.costo_unitario_estimado) > 0 && (
+                <> · incluye IVA {IVA_LABEL[l.iva_tipo]}: <b className="text-slate-800">{fmt(ivaIncluido(n(l.cantidad) * n(l.costo_unitario_estimado), l.iva_tipo))}</b></>
+              )}
+              {l.iva_tipo === "exenta" && <> · exenta</>}
             </p>
           </div>
         ))}
@@ -354,7 +390,10 @@ function ModalOrden({ proveedores, productos, cuentas, onClose, onSaved, onProve
         <textarea value={observaciones} onChange={(e) => setObservaciones(e.target.value)} rows={2} className={`mt-1 ${INPUT}`} /></label>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-        <span className="text-sm text-slate-600">Total estimado: <b className="text-lg text-slate-900">{fmt(total)}</b></span>
+        <div className="space-y-1">
+          <span className="text-sm text-slate-600">Total estimado: <b className="text-lg text-slate-900">{fmt(total)}</b></span>
+          <ResumenIva r={resumen} />
+        </div>
         <div className="flex gap-2">
           <button onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancelar</button>
           <button onClick={guardar} disabled={guardando}
@@ -434,6 +473,8 @@ function ModalDetalle({ data, onClose, onChanged, onEditar, onEliminada }: {
                   <th className="px-2 py-1.5 text-right">Facturado</th>
                   <th className="px-2 py-1.5 text-right">Pend. facturar</th>
                   <th className="px-2 py-1.5 text-right">Costo est.</th>
+                  <th className="px-2 py-1.5 text-right">IVA</th>
+                  <th className="px-2 py-1.5 text-right">Subtotal</th>
                 </tr>
               </thead>
               <tbody>
@@ -446,11 +487,27 @@ function ModalDetalle({ data, onClose, onChanged, onEditar, onEliminada }: {
                     <td className="px-2 py-1.5 text-right tabular-nums">{fmt(it.facturada)}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-blue-700">{fmt(n(it.recibida) - n(it.facturada))}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums">{fmt(it.costo_unitario_estimado)}</td>
+                    <td className="px-2 py-1.5 text-right">
+                      <span className="whitespace-nowrap">{IVA_LABEL[it.iva_tipo] ?? it.iva_tipo}</span>
+                      {it.iva_tipo !== "exenta" && (
+                        <span className="block tabular-nums text-slate-400">{fmt(ivaIncluido(n(it.cantidad) * n(it.costo_unitario_estimado), it.iva_tipo))}</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular-nums font-semibold">{fmt(n(it.cantidad) * n(it.costo_unitario_estimado))}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {(() => {
+            const r = resumenIva(items.map((it) => ({ monto: n(it.cantidad) * n(it.costo_unitario_estimado), iva: it.iva_tipo })));
+            return (
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                <ResumenIva r={r} />
+                <span className="text-sm text-slate-600">Total estimado (IVA incluido): <b className="text-slate-900">{fmt(r.total)}</b></span>
+              </div>
+            );
+          })()}
 
           <div className="mt-4 flex flex-wrap gap-2 border-t pt-4">
             {orden.estado === "borrador" && (
