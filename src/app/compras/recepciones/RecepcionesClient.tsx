@@ -205,7 +205,15 @@ export default function RecepcionesClient() {
                           </button>
                           {(r.cant_facturada ?? 0) === 0 ? (
                             <button disabled={ocupado} onClick={() => anular(r)} className="rounded px-2 py-1 text-amber-700 hover:bg-amber-50">Anular</button>
-                          ) : null}
+                          ) : (
+                            <button
+                              disabled
+                              title="Ya tiene compra registrada. Anulá primero la compra en Compras y después vas a poder anular la recepción."
+                              className="cursor-not-allowed rounded px-2 py-1 text-slate-400"
+                            >
+                              Anular
+                            </button>
+                          )}
                         </>
                       )}
                     </div>
