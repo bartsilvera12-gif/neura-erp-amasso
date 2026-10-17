@@ -30,6 +30,8 @@ export async function comprobantePdf(d: DatosComprobante): Promise<Blob> {
   const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
 
   const doc = await PDFDocument.create();
+  // El visor del navegador muestra este título en la pestaña.
+  doc.setTitle(d.venta.numero_control, { showInWindowTitleBar: true });
   const normal = await doc.embedFont(StandardFonts.Helvetica);
   const negrita = await doc.embedFont(StandardFonts.HelveticaBold);
   const negro = rgb(0, 0, 0);

@@ -47,16 +47,32 @@ export default function FacturaVenta({
 
   async function pdf() {
     setAviso(null);
+    // En la computadora el PDF se abre en una pestaña nueva (el visor del
+    // navegador ya trae Descargar e Imprimir). Bajarlo directo fallaba en
+    // Windows: si Chrome pregunta dónde guardar, la descarga quedaba en "error"
+    // y al abrirla mostraba file:///…/VTA-….pdf con ERR_FAILED. La pestaña se
+    // abre antes de generar el PDF para que el navegador no la bloquee.
+    const tactil = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+    const pestana = tactil ? null : window.open("", "_blank");
     try {
       const blob = await comprobantePdf(datos);
       const url = URL.createObjectURL(blob);
+      if (pestana && !pestana.closed) {
+        pestana.location.href = url;
+        // La pestaña la sigue usando (Descargar del visor vuelve a leerla).
+        setTimeout(() => URL.revokeObjectURL(url), 30 * 60_000);
+        return;
+      }
       const a = document.createElement("a");
       a.href = url;
       a.download = nombreArchivoPdf(venta.numero_control);
+      document.body.appendChild(a);
       a.click();
+      a.remove();
       // Sin el respiro, Android cancela la descarga al revocar la URL.
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000);
     } catch {
+      pestana?.close();
       setAviso("No se pudo generar el PDF. Probá con Imprimir.");
     }
   }
